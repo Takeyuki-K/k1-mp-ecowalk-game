@@ -1,0 +1,22 @@
+<!doctype html><html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>K1 EcoWalk Challenge</title>
+<style>body{background:#101b25;color:#e4edf3;font:16px system-ui;margin:0;padding:24px;max-width:1100px;margin:auto}h1{color:#6be3be}button,input,select{font:inherit;padding:10px;margin:4px;border-radius:8px;border:1px solid #456;background:#203341;color:white}button{cursor:pointer}img{width:100%;max-width:800px;background:#192a37;aspect-ratio:16/9;border-radius:12px}#stats{white-space:pre-wrap;padding:18px;background:#203341;border-radius:12px}small{color:#abc}#error{color:#ffad91}</style>
+<h1>K1 EcoWalk Challenge</h1><p>ゴールで停止して省エネ完走。2ステージはそれぞれ別採点。</p>
+<button onclick="start(1)">Stage 1 · 20m直線</button><button onclick="start(2)">Stage 2 · 10m障害物</button><button onclick="camera()">視点切替</button><button onclick="post('/abort',{})">終了</button><br>
+<img id="view" alt="MuJoCo K1シミュレーション"><p id="error" role="alert"></p>
+<p>W / ↑：前進　A/D / ←→：旋回　Space：停止　B：急停止　C：視点切替</p>
+<label>速度 <input id="speed" type="range" min="0.3" max="4.5" step="0.1" value="0.9"><span id="speedv">0.9</span> m/s</label>
+<p><button onpointerdown="keys.add('w')" onpointerup="keys.delete('w')" onpointerleave="keys.delete('w')">前進（押し続ける）</button><button onpointerdown="keys.add('a')" onpointerup="keys.delete('a')" onpointerleave="keys.delete('a')">左</button><button onpointerdown="keys.add('d')" onpointerup="keys.delete('d')" onpointerleave="keys.delete('d')">右</button><button onclick="keys.clear()">停止</button></p>
+<pre id="stats">ステージを選んでください</pre><small>電力は23モーターのモデル推定。実機測定ではありません。回生・PCなどの補機消費は含みません。</small>
+<p><input id="player" placeholder="ランキング用の名前" maxlength="40"><label><input id="uploadReplay" type="checkbox">再生データも共有</label><button onclick="post('/submit',{player:player.value,include_replay:uploadReplay.checked}).then(()=>alert('送信しました')).catch(showError)">完走結果を送信</button><button onclick="ranking(1)">Stage 1 ランキング</button><button onclick="ranking(2)">Stage 2 ランキング</button></p><pre id="rankingList"></pre>
+<script>
+async function ranking(stage){try{let r=await fetch('/ranking/'+stage),j=await r.json();if(!r.ok)throw Error(j.error);rankingList.textContent='Stage '+stage+' · 自己申告ランキング\n'+j.entries.map((x,i)=>(i+1)+'. '+x[0]+' · '+x[1].toFixed(1)+' 点 · '+(x[2]/3600).toFixed(3)+' Wh').join('\n')}catch(e){showError(e)}}
+const keys=new Set();let first=false;
+async function post(url,data){let r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});let j=await r.json();if(!r.ok)throw Error(j.error);return j}
+async function start(stage){keys.clear();try{await post('/start',{stage});document.getElementById('error').textContent=''}catch(e){document.getElementById('error').textContent=e.message}}
+function camera(){first=!first;post('/camera',{mode:first?'first':'third'}).catch(showError)}
+function showError(e){document.getElementById('error').textContent=e.message}
+onkeydown=e=>{if(e.target.tagName==='INPUT')return;let k=e.key.toLowerCase();if([' ','arrowup','arrowdown','arrowleft','arrowright'].includes(k))e.preventDefault();if(k==='c'&&!e.repeat)camera();keys.add(k);if(k===' ')keys.clear()};onkeyup=e=>keys.delete(e.key.toLowerCase());onblur=()=>keys.clear();document.addEventListener('visibilitychange',()=>{if(document.hidden)keys.clear()});
+speed.oninput=()=>speedv.textContent=speed.value;
+setInterval(()=>{let v=keys.has('w')||keys.has('arrowup')?+speed.value:0;let w=(keys.has('a')||keys.has('arrowleft')?.6:0)-(keys.has('d')||keys.has('arrowright')?.6:0);post('/command',{v,w,brake:keys.has('b')}).catch(showError)},100);
+async function refresh(){try{let r=await fetch('/status');let s=await r.json();if(s.result){let x=s.result,p=x.prediction;stats.textContent=`Stage ${x.stage} · ${x.outcome}\nScore ${x.score.toFixed(1)}　衝突 ${x.collisions} 回\n時間 ${x.elapsed_s.toFixed(1)} s　エネルギー ${x.energy_wh.toFixed(3)} Wh\n平均電力 ${x.average_power_w.toFixed(1)} W\n8時間の予測：${p.energy_8h_wh.toFixed(1)} Wh ／交換 ${p.swaps_8h===null?'未算出（容量未設定）':p.swaps_8h+' 回'}\n記録：${s.directory||''}`}if(s.render_error)document.getElementById('error').textContent=s.render_error;if(s.sim){view.src='/frame.jpg?t='+Date.now()}}catch(e){showError(e)}setTimeout(refresh,250)}refresh();
+</script></html>

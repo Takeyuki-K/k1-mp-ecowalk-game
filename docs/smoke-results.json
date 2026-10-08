@@ -1,0 +1,42 @@
+[
+  {
+    "rules": "ecowalk-game-1",
+    "stage": 1,
+    "outcome": "finished",
+    "elapsed_s": 27.399999999999505,
+    "energy_j": 3301.0179853419486,
+    "energy_wh": 0.9169494403727635,
+    "average_power_w": 120.47510895408789,
+    "collisions": 0,
+    "score": 2325.030965711007,
+    "prediction": {
+      "label": "予測・同じステージを8時間連続反復／休憩・交換時間を除く",
+      "average_power_w": 120.47510895408789,
+      "energy_8h_wh": 963.8008716327031,
+      "battery_wh": null,
+      "usable_fraction": 0.8,
+      "auxiliary_w": 0.0,
+      "swaps_8h": null
+    }
+  },
+  {
+    "rules": "ecowalk-game-1",
+    "stage": 2,
+    "outcome": "fallen",
+    "elapsed_s": 19.359999999999676,
+    "energy_j": 3938.6685380520826,
+    "energy_wh": 1.0940745939033563,
+    "average_power_w": 203.44362283327214,
+    "collisions": 11,
+    "score": 0.0,
+    "prediction": {
+      "label": "予測・同じステージを8時間連続反復／休憩・交換時間を除く",
+      "average_power_w": 203.44362283327214,
+      "energy_8h_wh": 1627.5489826661772,
+      "battery_wh": null,
+      "usable_fraction": 0.8,
+      "auxiliary_w": 0.0,
+      "swaps_8h": null
+    }
+  }
+]

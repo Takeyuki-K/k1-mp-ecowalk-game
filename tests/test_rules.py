@@ -1,0 +1,30 @@
+import math
+import pytest
+from k1_ecowalk_game.rules import Run
+from k1_ecowalk_game.ranking import validate
+
+def test_goal_requires_physical_stop_and_hold():
+    r=Run(1)
+    for _ in range(60):r.update(.02,100,[20,0,1],0,0,stopped=False)
+    assert r.outcome=='playing'
+    for _ in range(51):r.update(.02,100,[20,0,1],0,0,stopped=True)
+    assert r.outcome=='finished'
+    assert r.result()['average_power_w']==pytest.approx(100)
+
+def test_contact_episodes_and_energy_units():
+    r=Run(2)
+    for contacts in ({'a'},{'a'},set(),{'a','b'}):r.update(1,3600,[0,0,1],1,0,contacts)
+    assert r.collisions==3
+    assert r.result()['energy_wh']==4
+    r.outcome='finished'
+    assert r.result(400,1)['prediction']['swaps_8h']==71
+
+def test_failure_cannot_score():
+    r=Run(1);r.update(.02,100,[20,0,1],0,0,fallen=True,stopped=True)
+    assert r.result()['score']==0
+
+def test_server_recomputes_score_and_rejects_nan():
+    r=Run(1,energy_j=1000,elapsed=10,outcome='finished').result();r['score']=1e9
+    assert validate({'player':'test','result':r})[1]['score']==5000
+    r['energy_j']=math.nan
+    with pytest.raises(ValueError):validate({'player':'test','result':r})

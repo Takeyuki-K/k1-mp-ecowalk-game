@@ -1,0 +1,5 @@
+K1 EcoWalk Game
+Copyright 2026 Takeyuki-K
+Game implementation generated with OpenAI Codex under Takeyuki-K's direction.
+Uses external k1-mp-ecowalk-public and k1-mp-ecowalk-teleop without copying their assets.
+Please retain their licenses, notices and motion-data attributions in dependency checkouts.
