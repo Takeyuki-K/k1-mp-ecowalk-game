@@ -15,6 +15,7 @@ class Run:
     elapsed: float = 0.
     collisions: int = 0
     hold: float = 0.
+    inside_goal: bool = False
     outcome: str = 'playing'
     active_contacts: set = field(default_factory=set)
     last_contact: dict = field(default_factory=dict)
@@ -33,6 +34,7 @@ class Run:
             self.last_contact[contact] = self.elapsed
         self.active_contacts = contacts
         inside = abs(pos[0] - STAGES[self.stage]['length']) <= .75 and abs(pos[1]) <= 1.
+        self.inside_goal = bool(inside)
         self.hold = self.hold + dt if inside and speed < .08 and abs(yaw_rate) < .08 and stopped else 0.
         if fallen:
             self.outcome = 'fallen'
@@ -48,6 +50,7 @@ class Run:
         work_wh = (avg + auxiliary_w) * 8
         usable = battery_wh * usable_fraction if battery_wh else None
         return dict(rules=RULES, stage=self.stage, outcome=self.outcome,
+                    inside_goal=self.inside_goal, goal_hold_s=self.hold, goal_hold_required_s=1.,
                     elapsed_s=self.elapsed, energy_j=self.energy_j, energy_wh=self.energy_j/3600,
                     average_power_w=avg, collisions=self.collisions,
                     score=max(0., 10000 / (1 + self.energy_j/1000) - 250*self.collisions) if self.outcome == 'finished' else 0.,

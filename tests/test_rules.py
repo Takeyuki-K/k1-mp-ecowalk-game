@@ -28,3 +28,18 @@ def test_server_recomputes_score_and_rejects_nan():
     assert validate({'player':'test','result':r})[1]['score']==5000
     r['energy_j']=math.nan
     with pytest.raises(ValueError):validate({'player':'test','result':r})
+
+def test_goal_overlay_progress_resets_when_leaving():
+    r=Run(1)
+    r.update(.2,100,[20,0,1],0,0,stopped=True)
+    result=r.result()
+    assert result['inside_goal'] and result['goal_hold_s']==pytest.approx(.2)
+    r.update(.2,100,[18,0,1],0,0,stopped=True)
+    assert not r.result()['inside_goal'] and r.result()['goal_hold_s']==0
+
+def test_goal_status_can_be_serialized_from_numpy_state():
+    import json
+    import numpy as np
+    r=Run(1)
+    r.update(.02,100,np.array([20.,0.,1.]),0,0,stopped=True)
+    assert json.loads(json.dumps(r.result()))['inside_goal'] is True

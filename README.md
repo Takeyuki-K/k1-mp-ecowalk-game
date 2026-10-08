@@ -1,4 +1,4 @@
-# K1 EcoWalk Game
+# ecowalk-drive!! — K1 EcoWalk Game
 
 v5.6.3のK1 MP EcoWalkをCPU MuJoCoでテレオペし、ゴールまでの推定消費エネルギーを競うゲーム。Ubuntu 24.04 / Python 3.12を推奨。GPU不要（描画にはMesa/OpenGLが必要）。Gazeboへの移植は含みません。
 
@@ -12,12 +12,33 @@ cd k1-mp-ecowalk-game
 sudo apt install python3-venv libgl1-mesa-dri libegl1 libosmesa6
 bash scripts/setup.sh
 source .venv/bin/activate
-MUJOCO_GL=egl LIBGL_ALWAYS_SOFTWARE=1 k1-game
+MUJOCO_GL=egl k1-game
 ```
 
-ブラウザで http://localhost:8090 を開きます。privateのteleopリポジトリをcloneできるGitHub認証が必要です。Mesa EGLが使えない環境では `MUJOCO_GL=osmesa` を使用してください。CPUが遅い場合は実時間より遅くなりますが、採点はシミュレーション時間です。torchはCPU版をインストールします。ROS 2なしでも遊べます。
+ブラウザで http://localhost:8090 を開きます。タイトルメニューからステージ1・2を選択。プレイ画面はブラウザの表示領域いっぱいに配置し、全画面ボタン（またはF11）も利用できます。ランキング・操作説明は上部ボタンから開きます。privateのteleopリポジトリをcloneできるGitHub認証が必要です。Mesa EGLが使えない環境では `MUJOCO_GL=osmesa` を使用してください。CPUが遅い場合は実時間より遅くなりますが、採点はシミュレーション時間です。torchはCPU版をインストールします。ROS 2なしでも遊べます。
 
-W/↑：前進、A/D/←→：旋回、Space：停止、B：急停止、C：一人称/三人称切替。速度はスライダー。後退・横移動は未学習のためありません。入力を離すと通常停止、通信が0.5秒途絶えると停止。走行切替・旋回減速・停止後の足揃えは既存v5.6.3の制御です。
+### 操作方式
+
+- **キー操作**：W/↑を押し続けて前進、A/Dまたは←/→で旋回。離すと停止。Shift＋前進で4.0m/s。速度±ボタンまたは「ゆっくり」「歩行」「走行」で通常速度を変更。Space停止、B急停止、C視点切替。
+- **画面ジョイスティック**：操作方式を切り替え、パッドをドラッグ。上が前進、左右が旋回。離すと停止。teleopパッケージと同様、縦軸を非線形（gamma=1.7）にして歩行速度を選びやすくしています。
+- **USBゲームパッド**：ジョイスティックモードで「USBゲームパッドを使う」を有効化。標準マッピングの左スティック、A停止、B急停止。接続後に一度スティックを中央へ戻してから操作。非標準マッピングは画面パッドを使用してください。
+- ダイアログ表示・操作方式切替・フォーカス喪失時は停止指令。通信が0.5秒途絶えると停止。後退・横移動はありません。
+
+### 描画の滑らかさ
+
+MuJoCoの計算も描画も自分のPCで実行し、localhost経由でブラウザへ表示。従来の画像ポーリング（ブラウザ約4fps）をMJPEG連続配信へ変更。標準30fps、最大60fpsまで設定可能です。描画とJPEG処理は専用スレッドで行い、物理計算のロックを占有しません。配信は最新フレームを優先し、古い画像をためません。
+
+```bash
+MUJOCO_GL=egl k1-game --render-fps 60
+# Mesa EGLで映らない環境
+MUJOCO_GL=osmesa k1-game --render-fps 30
+```
+
+影と反射を省いて描画負荷を軽減。AMDなどの内蔵GPUを使えるUbuntuデスクトップでは `unset LIBGL_ALWAYS_SOFTWARE` として、ソフトウェア描画を強制しないでください。EGLが使えない場合は `MUJOCO_GL=glfw`（デスクトップ環境が必要）も試せます。OSMesaはCPUソフトウェア描画のフォールバックです。
+
+画面下に実測fpsとシミュレーションの実時間比を表示。数値はPC性能に依存し、60fpsを保証しません。物理・方策は50Hzです。消費電力を測るゲームなので、描画設定を変えても採点に用いる時間・積算方式は変えません。
+
+ゴール範囲内では「停止判定まち…」と判定進捗を重ねて表示。完走すると「ゴール！！」、スコア、消費Wh・平均W・時間・衝突回数・8時間予測を表示し、シミュレーションを停止します。再挑戦・ステージ選択・ランキング送信ができます。
 
 ## ステージと採点
 
@@ -77,6 +98,7 @@ curl -H "Authorization: Bearer $K1_RANKING_TOKEN" http://localhost:8091/ranking/
 
 ```bash
 python -m pytest tests -q
+node tests/test_controls.cjs  # Nodeがある場合：入力マッピング検証
 ```
 
 採点・単位・停止判定・接触回数・不正な数値を検証。CPU上の実ポリシー検証結果は `docs/smoke-results.json` と `docs/VALIDATION.md`。ROS 2 bag実行とユーザーのPC上の実時間性能は別途確認が必要です。
