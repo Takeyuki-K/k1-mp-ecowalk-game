@@ -114,7 +114,7 @@ class Game:
             self.last_command = 0.
             self.directory = Path(self.args.output)/str(uuid.uuid4())
             metadata = dict(stage=stage,policy='v5.6.3',public_commit=PUBLIC_SHA,teleop_commit=TELEOP_SHA,
-                            rules=RULES,course=STAGES[stage],physics_dt=self.backend.sim.m.opt.timestep,
+                            rules=RULES,course=STAGES[stage],battery_wh=self.args.battery_wh,usable_fraction=self.args.usable_fraction,auxiliary_w=self.args.auxiliary_w,physics_dt=self.backend.sim.m.opt.timestep,
                             seed=5,mujoco_version=self.backend.mj.__version__,numpy_version=__import__('numpy').__version__,torch_version=__import__('torch').__version__,power_model='sum(tau^2/Km^2 + max(tau*qd,0)); no regeneration; all 23 motors')
             self.recorder = Recorder(self.directory,metadata,self.args.rosbag)
             self.capture(0.,0.,set())
@@ -122,7 +122,7 @@ class Game:
     def capture(self, power, dt, contacts):
         b = self.backend
         row = dict(t=b.sim.sim_time,mode=int(b.sim.g.mode[0]),state=b.sim.env.state[0].tolist(),
-                   command=list(self.command),power_w=power,dt=dt,contacts=sorted(contacts),result=self.run.result())
+                   command=list(self.command),power_w=power,dt=dt,contacts=sorted(contacts),result=self.run.result(self.args.battery_wh,self.args.usable_fraction,self.args.auxiliary_w))
         self.recorder.append(row)
 
     def finish(self, outcome=None):
@@ -415,11 +415,12 @@ def main():
     p.add_argument('--rosbag',action='store_true')
     p.add_argument('--replay')
     p.add_argument('--stage',type=int,choices=sorted(STAGES),default=1,help='stage for rosbag-only replay')
-    p.add_argument('--battery-wh',type=float)
+    p.add_argument('--battery-wh',type=float,default=400.,help='battery capacity in Wh (default: 400)')
     p.add_argument('--usable-fraction',type=float,default=.8)
     p.add_argument('--auxiliary-w',type=float,default=0.)
     args = p.parse_args()
-    if args.battery_wh is not None and args.battery_wh <= 0 or not 0 < args.usable_fraction <= 1 or args.auxiliary_w < 0:
+    import math
+    if not all(math.isfinite(v) for v in (args.battery_wh,args.usable_fraction,args.auxiliary_w)) or args.battery_wh <= 0 or not 0 < args.usable_fraction <= 1 or args.auxiliary_w < 0:
         p.error('invalid battery/power configuration')
     g = Game(args)
     if args.replay:

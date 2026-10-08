@@ -5,6 +5,7 @@ from pathlib import Path
 import sys
 import numpy as np
 from .rules import STAGES
+from .camera import FollowCamera
 
 PUBLIC_SHA = '04b1c0fded94dcde76411e6bd9d914a56d41102a'
 TELEOP_SHA = 'a5ea3dbf4f97501c18ff090f86ff4cd413f6aaea'
@@ -63,7 +64,7 @@ class Backend:
             spec = original(*args, **kw)
             for i, (x, y, hx, hy) in enumerate(self.course['obstacles']):
                 spec.worldbody.add_geom(name=f'game_obstacle_{i}', type=mj.mjtGeom.mjGEOM_BOX,
-                                        pos=[x,y,.75], size=[hx,hy,.75], rgba=[.95,.35,.12,1])
+                                        pos=[x,y,.75], size=[hx,hy,.75], rgba=[.95,.35,.12,.25])
             for i,(x1,y1,x2,y2,width,height) in enumerate(self.course['walls']):
                 angle = np.arctan2(y2-y1,x2-x1)
                 half_length = np.hypot(x2-x1,y2-y1)/2 + width/2
@@ -92,6 +93,7 @@ class Backend:
         self.data = mj.MjData(self.sim.m)
         self.renderer = None
         self.camera_mode = 'third'
+        self.follow_camera = FollowCamera()
         self.stage = stage
 
     def step(self, v, w, brake=False):
@@ -123,13 +125,15 @@ class Backend:
         yaw = float(np.arctan2(2*(qw*qz+qx*qy),1-2*(qy*qy+qz*qz)))
         if (camera_mode or self.camera_mode) == 'first':
             # Free camera near head, looking along robot heading (MuJoCo camera conventions).
+            self.follow_camera.reset()
             head = self.sim.m.body('head_link').id
             cam.lookat[:] = self.data.xpos[head] + [np.cos(yaw)*.8,np.sin(yaw)*.8,.1]
             cam.distance = .5; cam.azimuth = np.degrees(yaw); cam.elevation = -5
         else:
             # MuJoCo azimuth is the viewing direction: yaw looks along the robot's heading.
             # Aim below the pelvis so head and feet both fit in the 16:9 frame.
-            cam.lookat[:] = [q[0],q[1],.85]; cam.distance = 4.; cam.azimuth = np.degrees(yaw); cam.elevation = -12
+            x,y,heading = self.follow_camera.follow(q[0],q[1],yaw)
+            cam.lookat[:] = [x,y,.85]; cam.distance = 4.; cam.azimuth = np.degrees(heading); cam.elevation = -12
         self.renderer.update_scene(self.data, camera=cam)
         self.renderer.scene.flags[self.mj.mjtRndFlag.mjRND_SHADOW] = False
         self.renderer.scene.flags[self.mj.mjtRndFlag.mjRND_REFLECTION] = False
