@@ -18,3 +18,19 @@ python scripts/smoke.py
 ```
 
 Run results: [smoke-results.json](smoke-results.json). Timing and power can vary with dependency versions; compare games under the same pinned upstream sources and software environment.
+
+## v0.2 UI and streaming update
+
+- Python tests: 10 passed, including MJPEG content framing and goal-overlay telemetry (NumPy state is converted to JSON-compatible bool).
+- JavaScript: input mapping assertions and jsdom interaction tests passed (title/stage selection, Shift at 4.0m/s, joystick mode switch, latched emergency brake, goal waiting/progress and finished-result dialog).
+- Real MuJoCo: independent physics/render threads generated frames and switched Stage 2 -> Stage 1 cleanly; both threads shut down. Software Mesa rendering measured about 4.7-7.8fps here; physics remained at real-time factor 1.0 in the idle check. These values are environment-specific, not a claim of 30/60fps. Shadow/reflection rendering disabled.
+- Full Chromium screenshot testing was unavailable because the browser binary download failed. The DOM interaction test does not verify visual layout in a real browser.
+- Existing score, stage geometry and policy weights are unchanged. Goals expose region presence and 1-second stop-hold progress to the UI.
+
+Optional UI checks (test-only dependency, not needed to play):
+
+```bash
+npm install --prefix /tmp/k1-ui-check jsdom
+NODE_PATH=/tmp/k1-ui-check/node_modules node tests/test_ui.cjs
+node tests/test_controls.cjs
+```

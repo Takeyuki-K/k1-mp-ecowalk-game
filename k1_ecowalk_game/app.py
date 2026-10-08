@@ -33,8 +33,16 @@ class Game:
         self.frame_bytes = None
         self.render_error = None
         self.last_frame = 0.
+        self.frame_condition = threading.Condition()
+        self.frame_seq = 0
+        self.render_fps = 0.
+        self.real_time_factor = 1.
+        self.current_power = 0.
+        self.worker_error = None
 
     def request_start(self, stage):
+        if self.worker_error:
+            raise RuntimeError(self.worker_error)
         future = Future()
         self.jobs.put((stage,future))
         return future.result(timeout=60)
@@ -45,7 +53,7 @@ class Game:
         with self.lock:
             self.finish('aborted')
             if self.backend:
-                self.backend.close()
+                self.backend.close(close_renderer=False)
             self.backend = Backend(self.args.ecowalk_root,self.args.teleop_root,stage)
             self.replay = None
             self.replay_row = None
@@ -76,6 +84,18 @@ class Game:
             self.recorder = None
 
     def loop(self):
+        try:
+            self.physics_loop()
+        except Exception as e:
+            with self.lock:
+                self.worker_error = f'シミュレーションエラー：{e}'
+                self.command = (0.,0.,False)
+                self.finish('aborted')
+            while not self.jobs.empty():
+                _,future = self.jobs.get()
+                future.set_exception(e)
+
+    def physics_loop(self):
         import torch
         torch.set_num_threads(1)
         while self.running:
@@ -105,32 +125,78 @@ class Game:
                     cmd = self.command if time.monotonic()-self.last_command < .5 else (0.,0.,False)
                     self.command = cmd
                     power, contacts, _ = b.step(*cmd)
+                    self.current_power = power
                     q, qv = b.sim.qpos(), b.sim.qvel()
                     stopped = b.sim.status()['mode'] == 'stand' and cmd[:2] == (0.,0.)
                     self.run.update(dt,power,q[:3],float((qv[:2]**2).sum()**.5),float(qv[5]),contacts,b.sim.fallen,stopped)
                     self.capture(power,dt,contacts)
                     if self.run.outcome != 'playing':
                         self.finish()
-                if self.backend and time.monotonic()-self.last_frame >= .1:
-                    try:
-                        from PIL import Image
-                        buf = io.BytesIO()
-                        Image.fromarray(self.backend.frame()).save(buf,format='JPEG',quality=80)
-                        self.frame_bytes = buf.getvalue()
-                        self.render_error = None
-                    except Exception as e:
-                        self.render_error = str(e)
-                    self.last_frame = time.monotonic()
+            self.real_time_factor = min(1., dt / max(dt,time.monotonic()-start))
             time.sleep(max(0.,dt-(time.monotonic()-start)))
 
         if self.backend:
-            self.backend.close()
+            self.backend.close(close_renderer=False)
+
+    def render_loop(self):
+        # Only this thread owns OpenGL resources; physics never waits for JPEG rendering.
+        previous = None
+        count, window = 0, time.monotonic()
+        fps = getattr(self.args,'render_fps',30)
+        deadline = time.monotonic()
+        try:
+            while self.running:
+                with self.lock:
+                    backend = self.backend
+                    if backend:
+                        mode = int(backend.sim.g.mode[0])
+                        state = backend.sim.env.state[0].copy()
+                        camera = backend.camera_mode
+                if backend is not previous:
+                    if previous:
+                        previous.close_renderer()
+                    previous = backend
+                if backend:
+                    try:
+                        from PIL import Image
+                        buf = io.BytesIO()
+                        Image.fromarray(backend.frame(state,mode,camera)).save(buf,format='JPEG',quality=78)
+                        frame = buf.getvalue()
+                        with self.lock:
+                            if backend is self.backend:
+                                self.frame_bytes = frame
+                                self.render_error = None
+                                self.last_frame = time.monotonic()
+                        with self.frame_condition:
+                            self.frame_seq += 1
+                            self.frame_condition.notify_all()
+                        count += 1
+                    except Exception as e:
+                        with self.lock:
+                            self.render_error = f'{e}（MUJOCO_GL=osmesa で再起動を試してください）'
+                        time.sleep(.1)
+                now = time.monotonic()
+                if now-window >= 1:
+                    self.render_fps = count/(now-window)
+                    count,window = 0,now
+                deadline += 1/fps
+                if deadline < now:
+                    deadline = now
+                time.sleep(max(0.,deadline-time.monotonic()))
+        finally:
+            if previous:
+                previous.close_renderer()
+            with self.frame_condition:
+                self.frame_condition.notify_all()
 
     def status(self):
         with self.lock:
             return dict(result=self.result or (self.run.result(self.args.battery_wh,self.args.usable_fraction,self.args.auxiliary_w) if self.run else None),
                         sim=self.backend.sim.status() if self.backend else None,
-                        directory=str(self.directory) if self.directory else None,replay=self.replay_row,render_error=self.render_error)
+                        directory=str(self.directory) if self.directory else None,replay=self.replay_row,render_error=self.render_error,render_fps=round(self.render_fps,1),
+                        render_target_fps=getattr(self.args,"render_fps",30),real_time_factor=round(self.real_time_factor,2),
+                        current_power_w=self.current_power,worker_error=self.worker_error,
+                        ranking_enabled=bool(getattr(self.args,"ranking_url",None)))
 
 class Handler(BaseHTTPRequestHandler):
     def log_message(self,*args):
@@ -149,6 +215,9 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if self.path == '/':
                 self.send(200,(Path(__file__).parent/'web/index.html').read_bytes(),'text/html; charset=utf-8')
+            elif self.path in ('/game.js','/controls.js','/style.css'):
+                mime = 'text/css' if self.path.endswith('.css') else 'text/javascript'
+                self.send(200,(Path(__file__).parent/'web'/self.path[1:]).read_bytes(),mime+'; charset=utf-8')
             elif self.path == '/status':
                 self.send(200,g.status())
             elif self.path in ('/ranking/1','/ranking/2'):
@@ -157,6 +226,8 @@ class Handler(BaseHTTPRequestHandler):
                 req = Request(g.args.ranking_url.rstrip('/')+self.path,headers={'Authorization':'Bearer '+os.environ.get('K1_RANKING_TOKEN','')})
                 with urlopen(req,timeout=10) as response:
                     self.send(200,response.read())
+            elif self.path == '/stream.mjpg':
+                self.stream_frames()
             elif self.path == '/frame.jpg':
                 with g.lock:
                     frame = g.frame_bytes
@@ -168,6 +239,30 @@ class Handler(BaseHTTPRequestHandler):
                 self.send(404,{'error':'not found'})
         except Exception as e:
             self.send(500,{'error':str(e)})
+
+    def stream_frames(self):
+        g = self.server.game
+        self.send_response(200)
+        self.send_header('Content-Type','multipart/x-mixed-replace; boundary=k1frame')
+        self.send_header('Cache-Control','no-store')
+        self.end_headers()
+        seq = -1
+        try:
+            while g.running:
+                with g.frame_condition:
+                    g.frame_condition.wait_for(lambda: g.frame_seq != seq or not g.running,timeout=1)
+                    if not g.running:
+                        break
+                    if g.frame_seq == seq:
+                        continue
+                    seq = g.frame_seq
+                with g.lock:
+                    frame = g.frame_bytes
+                if frame:
+                    self.wfile.write(b'--k1frame\r\nContent-Type: image/jpeg\r\nContent-Length: '+str(len(frame)).encode()+b'\r\n\r\n'+frame+b'\r\n')
+                    self.wfile.flush()
+        except (BrokenPipeError,ConnectionResetError):
+            pass
 
     def do_POST(self):
         g = self.server.game
@@ -222,6 +317,7 @@ def main():
     p.add_argument('--teleop-root',default=os.environ.get('TELEOP_ROOT','vendor/k1-mp-ecowalk-teleop'))
     p.add_argument('--port',type=int,default=8090)
     p.add_argument('--ranking-url')
+    p.add_argument('--render-fps',type=int,default=30,choices=range(5,61),metavar='5..60')
     p.add_argument('--output',default='runs')
     p.add_argument('--rosbag',action='store_true')
     p.add_argument('--replay')
@@ -240,13 +336,17 @@ def main():
         g.replay = iter(rows(args.replay))
     server = ThreadingHTTPServer(('127.0.0.1',args.port),Handler); server.game = g
     thread = threading.Thread(target=g.loop,daemon=True); thread.start()
+    render_thread = threading.Thread(target=g.render_loop,daemon=True); render_thread.start()
     print(f'K1 EcoWalk Game: http://localhost:{args.port}',flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
-        g.running = False; thread.join(timeout=5)
+        g.running = False
+        with g.frame_condition:
+            g.frame_condition.notify_all()
+        thread.join(timeout=5); render_thread.join(timeout=5)
         with g.lock:
             g.finish('aborted')
 

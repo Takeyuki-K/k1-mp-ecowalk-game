@@ -102,15 +102,17 @@ class Backend:
         meter = self.meters[active]
         return meter.energy/self.sim.dt, meter.contacts, meter.trace
 
-    def frame(self):
+    def frame(self, state=None, mode=None, camera_mode=None):
         if self.renderer is None:
             self.renderer = self.mj.Renderer(self.sim.m, height=360, width=640)
-        self.mj.mj_setState(self.sim.env.m, self.data, self.sim.env.state[0], self.sim.env.spec_state)
+        env = self.sim.env if mode is None else (self.sim.g.R if mode else self.sim.g.W)
+        self.mj.mj_setState(env.m, self.data, env.state[0] if state is None else state, env.spec_state)
         self.mj.mj_forward(self.sim.m, self.data)
         cam = self.mj.MjvCamera()
-        q = self.sim.qpos()
-        yaw = float(self.sim.env.yaw()[0])
-        if self.camera_mode == 'first':
+        q = self.data.qpos
+        qw,qx,qy,qz = q[3:7]
+        yaw = float(np.arctan2(2*(qw*qz+qx*qy),1-2*(qy*qy+qz*qz)))
+        if (camera_mode or self.camera_mode) == 'first':
             # Free camera near head, looking along robot heading (MuJoCo camera conventions).
             head = self.sim.m.body('head_link').id
             cam.lookat[:] = self.data.xpos[head] + [np.cos(yaw)*.8,np.sin(yaw)*.8,.1]
@@ -118,11 +120,18 @@ class Backend:
         else:
             cam.lookat[:] = q[:3]; cam.distance = 4.; cam.azimuth = np.degrees(yaw)+150; cam.elevation = -22
         self.renderer.update_scene(self.data, camera=cam)
+        self.renderer.scene.flags[self.mj.mjtRndFlag.mjRND_SHADOW] = False
+        self.renderer.scene.flags[self.mj.mjtRndFlag.mjRND_REFLECTION] = False
         return self.renderer.render()
 
-    def close(self):
+    def close_renderer(self):
         if self.renderer:
             self.renderer.close()
+            self.renderer = None
+
+    def close(self, close_renderer=True):
+        if close_renderer:
+            self.close_renderer()
         for e in (self.sim.g.W,self.sim.g.R):
             roll = e.roll
             while hasattr(roll,'roll'):
