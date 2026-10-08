@@ -42,3 +42,11 @@ node tests/test_controls.cjs
 - Actual MuJoCo: Stage 2 has 4 enclosing wall geoms and Stage 3 has 66 wall geoms in both walking and running models. Robot/wall contacts verified in each model; both stages stepped and rendered at 1280×720 under EGL. Wall contact names participate in the same collision meter as obstacles.
 - No full Stage 3 driving route or real-browser layout test was performed.
 - Course geometry is shared by simulation, boundary detection, recordings and the minimap. Updated rules separate old-course ranking records without deleting them.
+
+## v0.3 persistent ranking and replay
+
+- Stage 2 orange obstacles now attach alternately to left/right walls, each leaving a 2m opening. Rules version 3 separates the changed course's scores.
+- 15 Python tests pass: local finished-record registration, DB persistence/idempotent replay additions, authenticated remote replay retrieval, invalid replay validation and wall attachment geometry added to existing coverage.
+- jsdom UI checks pass for replay HUD, disabled driving controls and suppression of the result dialog during replay, alongside previous goal/input checks. JavaScript syntax and input tests pass.
+- Actual CPU MuJoCo: recorded Stage 2 motion, loaded its bundle, sought to the exact recorded state, rendered 1280×720, and ran 2× replay through automatic end pause. An older obstacle layout supplied in metadata was reconstructed correctly.
+- Internet deployment and real-browser visual layout remain unverified.

@@ -49,9 +49,10 @@ class Meter:
         return out
 
 class Backend:
-    def __init__(self, root, teleop, stage):
+    def __init__(self, root, teleop, stage, course=None):
         import mujoco as mj
         self.mj = mj
+        self.course = course or STAGES[stage]
         root, teleop = Path(root).expanduser().resolve(), Path(teleop).expanduser().resolve()
         sys.path.insert(0, str(teleop/'k1_ecowalk_ros'))
         sys.path.insert(0, str(root/'k1_mp_gait56'))
@@ -60,17 +61,17 @@ class Backend:
         base._game_original_build_spec = original
         def stage_spec(*args, **kw):
             spec = original(*args, **kw)
-            for i, (x, y, hx, hy) in enumerate(STAGES[stage]['obstacles']):
+            for i, (x, y, hx, hy) in enumerate(self.course['obstacles']):
                 spec.worldbody.add_geom(name=f'game_obstacle_{i}', type=mj.mjtGeom.mjGEOM_BOX,
                                         pos=[x,y,.75], size=[hx,hy,.75], rgba=[.95,.35,.12,1])
-            for i,(x1,y1,x2,y2,width,height) in enumerate(STAGES[stage]['walls']):
+            for i,(x1,y1,x2,y2,width,height) in enumerate(self.course['walls']):
                 angle = np.arctan2(y2-y1,x2-x1)
                 half_length = np.hypot(x2-x1,y2-y1)/2 + width/2
                 spec.worldbody.add_geom(name=f'game_wall_{i}',type=mj.mjtGeom.mjGEOM_BOX,
                     pos=[(x1+x2)/2,(y1+y2)/2,height/2],size=[half_length,width/2,height/2],
                     quat=[np.cos(angle/2),0,0,np.sin(angle/2)],rgba=[.28,.47,.52,1])
             spec.worldbody.add_geom(name='game_goal', type=mj.mjtGeom.mjGEOM_BOX,
-                                    pos=[*STAGES[stage]['goal'],.005], size=[*STAGES[stage]['goal_half_size'],.005],
+                                    pos=[*self.course['goal'],.005], size=[*self.course['goal_half_size'],.005],
                                     contype=0, conaffinity=0, rgba=[.2,.85,.45,.5])
             return spec
         eco = importlib.import_module('k1env_eco')

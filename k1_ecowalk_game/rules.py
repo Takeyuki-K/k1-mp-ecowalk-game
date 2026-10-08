@@ -2,7 +2,7 @@
 from dataclasses import dataclass, field
 import math
 
-RULES = 'ecowalk-game-2'
+RULES = 'ecowalk-game-3'
 WALL_THICKNESS = .18
 WALL_HEIGHT = 1.6
 
@@ -29,7 +29,7 @@ STAGES = {
         'obstacles':[], 'walls':[], 'centerline':[[-2.,0.],[24.,0.]],
         'bounds':[-2.,24.,-5.,5.]},
     2: {'title':'10m OBSTACLES', 'length':10., 'goal':[10.,0.], 'goal_half_size':[.75,1.],
-        'obstacles':[(3.,0.,.4,.65),(5.5,-1.,.4,.65),(7.5,1.,.4,.65)],
+        'obstacles':[(3.,1.,.4,1.5),(5.5,-1.,.4,1.5),(7.5,1.,.4,1.5)],
         'walls':corridor_walls([[-2.,0.],[13.,0.]],2.5),
         'centerline':[[-2.,0.],[13.,0.]], 'corridor_half_width':2.5,
         'bounds':[-2.,13.,-2.5,2.5]},
