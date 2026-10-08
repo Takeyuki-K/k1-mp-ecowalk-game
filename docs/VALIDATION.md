@@ -34,3 +34,11 @@ npm install --prefix /tmp/k1-ui-check jsdom
 NODE_PATH=/tmp/k1-ui-check/node_modules node tests/test_ui.cjs
 node tests/test_controls.cjs
 ```
+
+## Enclosed courses and minimap update
+
+- Python tests: 11 passed, including Stage 3 goal completion, S-curve boundary checks, legacy ranking database migration and Stage 3 submission/filtering.
+- JavaScript input and jsdom UI interaction checks passed, including Stage 3 selection and minimap drawing with course telemetry.
+- Actual MuJoCo: Stage 2 has 4 enclosing wall geoms and Stage 3 has 66 wall geoms in both walking and running models. Robot/wall contacts verified in each model; both stages stepped and rendered at 1280×720 under EGL. Wall contact names participate in the same collision meter as obstacles.
+- No full Stage 3 driving route or real-browser layout test was performed.
+- Course geometry is shared by simulation, boundary detection, recordings and the minimap. Updated rules separate old-course ranking records without deleting them.

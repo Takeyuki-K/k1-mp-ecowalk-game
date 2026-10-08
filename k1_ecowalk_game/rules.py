@@ -2,11 +2,58 @@
 from dataclasses import dataclass, field
 import math
 
-RULES = 'ecowalk-game-1'
+RULES = 'ecowalk-game-2'
+WALL_THICKNESS = .18
+WALL_HEIGHT = 1.6
+
+def s_center(x):
+    t = max(0., min(1., (x-2.)/24.))
+    return 4.8 * math.sin(2*math.pi*t) * math.sin(math.pi*t)
+
+def corridor_walls(points, half_width):
+    # Closed perimeter. Wall joints overlap, so there are no shortcuts around the ends.
+    offset = half_width + WALL_THICKNESS/2
+    left = [(x,y+offset) for x,y in points]
+    right = [(x,y-offset) for x,y in points]
+    walls = []
+    for rail in (left,right):
+        for p,q in zip(rail,rail[1:]):
+            walls.append([*p,*q,WALL_THICKNESS,WALL_HEIGHT])
+    for index in (0,-1):
+        walls.append([*left[index],*right[index],WALL_THICKNESS,WALL_HEIGHT])
+    return walls
+
+S_CENTERLINE = [[float(x),s_center(float(x))] for x in range(-2,31)]
 STAGES = {
-    1: {'length': 20., 'obstacles': []},
-    2: {'length': 10., 'obstacles': [(3., 0., .4, .65), (5.5, -1., .4, .65), (7.5, 1., .4, .65)]},
+    1: {'title':'20m STRAIGHT', 'length':20., 'goal':[20.,0.], 'goal_half_size':[.75,1.],
+        'obstacles':[], 'walls':[], 'centerline':[[-2.,0.],[24.,0.]],
+        'bounds':[-2.,24.,-5.,5.]},
+    2: {'title':'10m OBSTACLES', 'length':10., 'goal':[10.,0.], 'goal_half_size':[.75,1.],
+        'obstacles':[(3.,0.,.4,.65),(5.5,-1.,.4,.65),(7.5,1.,.4,.65)],
+        'walls':corridor_walls([[-2.,0.],[13.,0.]],2.5),
+        'centerline':[[-2.,0.],[13.,0.]], 'corridor_half_width':2.5,
+        'bounds':[-2.,13.,-2.5,2.5]},
+    3: {'title':'S-CURVE', 'length':28., 'goal':[28.,0.], 'goal_half_size':[.75,1.],
+        'obstacles':[], 'walls':corridor_walls(S_CENTERLINE,2.5),
+        'centerline':S_CENTERLINE, 'corridor_half_width':2.5,
+        'bounds':[-2.,30.,-6.3,6.3]},
 }
+
+def course_center(stage, x):
+    points = STAGES[stage]['centerline']
+    for (ax,ay),(bx,by) in zip(points,points[1:]):
+        if ax <= x <= bx:
+            return ay + (by-ay)*(x-ax)/(bx-ax)
+    return points[0][1] if x < points[0][0] else points[-1][1]
+
+def on_course(stage, pos):
+    cfg = STAGES[stage]
+    xmin,xmax,ymin,ymax = cfg['bounds']
+    x,y = float(pos[0]),float(pos[1])
+    if not xmin <= x <= xmax or not ymin <= y <= ymax:
+        return False
+    width = cfg.get('corridor_half_width')
+    return width is None or abs(y-course_center(stage,x)) <= width
 
 @dataclass
 class Run:
@@ -33,12 +80,14 @@ class Run:
                 self.collisions += 1
             self.last_contact[contact] = self.elapsed
         self.active_contacts = contacts
-        inside = abs(pos[0] - STAGES[self.stage]['length']) <= .75 and abs(pos[1]) <= 1.
+        cfg = STAGES[self.stage]
+        gx,gy = cfg['goal']; hx,hy = cfg['goal_half_size']
+        inside = abs(pos[0]-gx) <= hx and abs(pos[1]-gy) <= hy
         self.inside_goal = bool(inside)
         self.hold = self.hold + dt if inside and speed < .08 and abs(yaw_rate) < .08 and stopped else 0.
         if fallen:
             self.outcome = 'fallen'
-        elif abs(pos[1]) > 5 or pos[0] < -2 or pos[0] > STAGES[self.stage]['length'] + 4:
+        elif not on_course(self.stage,pos):
             self.outcome = 'out_of_bounds'
         elif self.hold >= 1.:
             self.outcome = 'finished'

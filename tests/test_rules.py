@@ -43,3 +43,18 @@ def test_goal_status_can_be_serialized_from_numpy_state():
     r=Run(1)
     r.update(.02,100,np.array([20.,0.,1.]),0,0,stopped=True)
     assert json.loads(json.dumps(r.result()))['inside_goal'] is True
+
+def test_enclosed_courses_and_s_curve():
+    from k1_ecowalk_game.rules import STAGES, on_course, course_center
+    assert len(STAGES[2]['walls'])==4
+    assert not on_course(2,[10,3,1])
+    assert len(STAGES[3]['walls'])==66
+    for x in range(-2,31):
+        y=course_center(3,x)
+        assert on_course(3,[x,y,1])
+        assert on_course(3,[x,y+2,1])
+        assert not on_course(3,[x,y+2.6,1])
+    assert not on_course(3,[10,0,1])
+    r=Run(3)
+    for _ in range(51):r.update(.02,100,[28,0,1],0,0,stopped=True)
+    assert r.outcome=='finished'
