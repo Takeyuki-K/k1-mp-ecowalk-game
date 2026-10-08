@@ -12,10 +12,10 @@ cd k1-mp-ecowalk-game
 sudo apt install python3-venv libgl1-mesa-dri libegl1 libosmesa6
 bash scripts/setup.sh
 source .venv/bin/activate
-MUJOCO_GL=egl k1-game
+MUJOCO_GL=egl k1-game --render-fps 30
 ```
 
-ブラウザで http://localhost:8090 を開きます。タイトルメニューからステージ1・2を選択。プレイ画面はブラウザの表示領域いっぱいに配置し、全画面ボタン（またはF11）も利用できます。ランキング・操作説明は上部ボタンから開きます。privateのteleopリポジトリをcloneできるGitHub認証が必要です。Mesa EGLが使えない環境では `MUJOCO_GL=osmesa` を使用してください。CPUが遅い場合は実時間より遅くなりますが、採点はシミュレーション時間です。torchはCPU版をインストールします。ROS 2なしでも遊べます。
+ブラウザで http://localhost:8090 を開きます。タイトルメニューからステージ1・2・3を選択。プレイ画面はブラウザの表示領域いっぱいに配置し、全画面ボタン（またはF11）も利用できます。ランキング・操作説明は上部ボタンから開きます。依存のEcoWalk・teleopリポジトリも公開されており、通常のcloneにGitHub認証は不要です。Mesa EGLが使えない環境では `MUJOCO_GL=osmesa` を使用してください。CPUが遅い場合は実時間より遅くなりますが、採点はシミュレーション時間です。torchはCPU版をインストールします。ROS 2なしでも遊べます。
 
 ### 操作方式
 
@@ -29,7 +29,7 @@ MUJOCO_GL=egl k1-game
 MuJoCoの計算も描画も自分のPCで実行し、localhost経由でブラウザへ表示。従来の画像ポーリング（ブラウザ約4fps）をMJPEG連続配信へ変更。標準画質は1280×720・JPEG品質90。標準30fps、最大60fpsまで設定可能です。描画とJPEG処理は専用スレッドで行い、物理計算のロックを占有しません。配信は最新フレームを優先し、古い画像をためません。
 
 ```bash
-MUJOCO_GL=egl k1-game --render-fps 60
+MUJOCO_GL=egl k1-game --render-fps 30
 # Mesa EGLで映らない環境
 MUJOCO_GL=osmesa k1-game --render-fps 30
 ```
