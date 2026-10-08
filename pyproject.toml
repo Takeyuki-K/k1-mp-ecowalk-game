@@ -14,3 +14,7 @@ k1-game = "k1_ecowalk_game.app:main"
 k1-ranking = "k1_ecowalk_game.ranking:main"
 [tool.setuptools.package-data]
 k1_ecowalk_game = ["web/*"]
+
+[tool.setuptools.packages.find]
+include = ["k1_ecowalk_game", "k1_ecowalk_game.*"]
+namespaces = false
