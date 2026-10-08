@@ -50,3 +50,10 @@ node tests/test_controls.cjs
 - jsdom UI checks pass for replay HUD, disabled driving controls and suppression of the result dialog during replay, alongside previous goal/input checks. JavaScript syntax and input tests pass.
 - Actual CPU MuJoCo: recorded Stage 2 motion, loaded its bundle, sought to the exact recorded state, rendered 1280×720, and ran 2× replay through automatic end pause. An older obstacle layout supplied in metadata was reconstructed correctly.
 - Internet deployment and real-browser visual layout remain unverified.
+
+## Rear third-person camera and license inventory
+
+- Third-person view now looks along the robot heading from directly behind. Target height 0.85m, distance 4m, elevation -12 degrees keeps the complete standing robot in the 1280×720 frame.
+- Actual MuJoCo EGL frame visually inspected: head, arms and feet visible from the rear. Camera world position and forward direction checked at yaw 0 and pi/2. First-person settings unchanged.
+- JavaScript input mapping checks and Python compilation passed. Full pytest suite was not rerun in this refreshed runtime because pytest installation was unavailable.
+- Added THIRD_PARTY_LICENSES.md with checked primary-source links for direct integration/reference repositories, upstream model/motion origins, runtime libraries, optional ROS support and test tools. This is not an exhaustive transitive-dependency SBOM.
