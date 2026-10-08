@@ -69,7 +69,7 @@ class Backend:
                 half_length = np.hypot(x2-x1,y2-y1)/2 + width/2
                 spec.worldbody.add_geom(name=f'game_wall_{i}',type=mj.mjtGeom.mjGEOM_BOX,
                     pos=[(x1+x2)/2,(y1+y2)/2,height/2],size=[half_length,width/2,height/2],
-                    quat=[np.cos(angle/2),0,0,np.sin(angle/2)],rgba=[.28,.47,.52,1])
+                    quat=[np.cos(angle/2),0,0,np.sin(angle/2)],rgba=[.28,.47,.52,.25])
             spec.worldbody.add_geom(name='game_goal', type=mj.mjtGeom.mjGEOM_BOX,
                                     pos=[*self.course['goal'],.005], size=[*self.course['goal_half_size'],.005],
                                     contype=0, conaffinity=0, rgba=[.2,.85,.45,.5])
