@@ -8,14 +8,14 @@ import os
 from pathlib import Path
 import sqlite3
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from .rules import Run, RULES
+from .rules import Run, RULES, STAGES
 
 def validate(payload):
     r = payload['result']
     name = payload['player']
     if not isinstance(name,str) or not 1 <= len(name) <= 40 or any(ord(c)<32 for c in name):
         raise ValueError('invalid player')
-    if r.get('rules') != RULES or r.get('outcome') != 'finished' or r.get('stage') not in (1,2):
+    if r.get('rules') != RULES or r.get('outcome') != 'finished' or r.get('stage') not in STAGES:
         raise ValueError('only finished compatible runs accepted')
     e,t,c = r['energy_j'],r['elapsed_s'],r['collisions']
     if any(isinstance(x,bool) or not isinstance(x,(int,float)) or not math.isfinite(x) for x in (e,t,c)):
@@ -36,9 +36,9 @@ class Handler(BaseHTTPRequestHandler):
         return hmac.compare_digest(token,self.server.token)
     def do_GET(self):
         if not self.authorized(): self.respond(401,{'error':'token required'});return
-        if self.path not in ('/ranking/1','/ranking/2'): self.respond(404,{'error':'not found'});return
+        if self.path not in tuple(f'/ranking/{stage}' for stage in STAGES): self.respond(404,{'error':'not found'});return
         with sqlite3.connect(self.server.database) as db:
-            data=db.execute('SELECT player,score,energy_j,elapsed_s,collisions,run_id FROM runs WHERE stage=? ORDER BY score DESC,energy_j ASC LIMIT 100',(int(self.path[-1]),)).fetchall()
+            data=db.execute('SELECT player,score,energy_j,elapsed_s,collisions,run_id FROM runs WHERE stage=? AND rules=? ORDER BY score DESC,energy_j ASC LIMIT 100',(int(self.path.rsplit('/',1)[1]),RULES)).fetchall()
         self.respond(200,{'verification':'self-reported / trusted participants only','entries':data})
     def do_POST(self):
         if not self.authorized(): self.respond(401,{'error':'token required'});return
@@ -54,17 +54,23 @@ class Handler(BaseHTTPRequestHandler):
             directory=Path(self.server.uploads)/run_id;directory.mkdir(parents=True,exist_ok=True)
             (directory/'submission.json').write_text(json.dumps(p,ensure_ascii=False))
             with sqlite3.connect(self.server.database) as db:
-                db.execute('INSERT OR IGNORE INTO runs VALUES (?,?,?,?,?,?,?)',(run_id,name,r['stage'],r['score'],r['energy_j'],r['elapsed_s'],r['collisions']))
+                db.execute('INSERT OR IGNORE INTO runs (run_id,player,stage,score,energy_j,elapsed_s,collisions,rules) VALUES (?,?,?,?,?,?,?,?)',(run_id,name,r['stage'],r['score'],r['energy_j'],r['elapsed_s'],r['collisions'],RULES))
             self.respond(201,{'run_id':run_id,'score':r['score'],'verification':'self-reported'})
         except (ValueError,KeyError,TypeError) as e:
             self.respond(400,{'error':str(e)})
+
+def initialize_database(database):
+    with sqlite3.connect(database) as db:
+        db.execute('CREATE TABLE IF NOT EXISTS runs (run_id TEXT PRIMARY KEY,player TEXT,stage INTEGER,score REAL,energy_j REAL,elapsed_s REAL,collisions INTEGER,rules TEXT)')
+        if 'rules' not in {row[1] for row in db.execute('PRAGMA table_info(runs)')}:
+            db.execute("ALTER TABLE runs ADD COLUMN rules TEXT DEFAULT 'ecowalk-game-1'")
+
 
 def main():
     p=argparse.ArgumentParser();p.add_argument('--host',default='127.0.0.1');p.add_argument('--port',type=int,default=8091);p.add_argument('--database',default='ranking.db');p.add_argument('--uploads',default='ranking-runs');a=p.parse_args()
     token=os.environ.get('K1_RANKING_TOKEN','')
     if len(token)<24: p.error('set K1_RANKING_TOKEN to a secret with at least 24 characters')
-    with sqlite3.connect(a.database) as db:
-        db.execute('CREATE TABLE IF NOT EXISTS runs (run_id TEXT PRIMARY KEY,player TEXT,stage INTEGER,score REAL,energy_j REAL,elapsed_s REAL,collisions INTEGER)')
+    initialize_database(a.database)
     s=ThreadingHTTPServer((a.host,a.port),Handler);s.token=token;s.database=a.database;s.uploads=a.uploads
     print(f'Ranking API on {a.host}:{a.port}; self-reported trusted-participant mode',flush=True)
     try:s.serve_forever()

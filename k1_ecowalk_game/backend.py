@@ -43,7 +43,7 @@ class Meter:
                 for gid in ids:
                     name = mj.mj_id2name(m, mj.mjtObj.mjOBJ_GEOM, gid) or ''
                     other = ids[1] if gid == ids[0] else ids[0]
-                    if name.startswith('game_obstacle_') and m.geom_bodyid[other] != 0:
+                    if name.startswith(('game_obstacle_','game_wall_')) and m.geom_bodyid[other] != 0:
                         self.contacts.add(name)
             self.trace.append((states[0, k].copy(), power))
         return out
@@ -63,8 +63,14 @@ class Backend:
             for i, (x, y, hx, hy) in enumerate(STAGES[stage]['obstacles']):
                 spec.worldbody.add_geom(name=f'game_obstacle_{i}', type=mj.mjtGeom.mjGEOM_BOX,
                                         pos=[x,y,.75], size=[hx,hy,.75], rgba=[.95,.35,.12,1])
+            for i,(x1,y1,x2,y2,width,height) in enumerate(STAGES[stage]['walls']):
+                angle = np.arctan2(y2-y1,x2-x1)
+                half_length = np.hypot(x2-x1,y2-y1)/2 + width/2
+                spec.worldbody.add_geom(name=f'game_wall_{i}',type=mj.mjtGeom.mjGEOM_BOX,
+                    pos=[(x1+x2)/2,(y1+y2)/2,height/2],size=[half_length,width/2,height/2],
+                    quat=[np.cos(angle/2),0,0,np.sin(angle/2)],rgba=[.28,.47,.52,1])
             spec.worldbody.add_geom(name='game_goal', type=mj.mjtGeom.mjGEOM_BOX,
-                                    pos=[STAGES[stage]['length'],0,.005], size=[.75,1,.005],
+                                    pos=[*STAGES[stage]['goal'],.005], size=[*STAGES[stage]['goal_half_size'],.005],
                                     contype=0, conaffinity=0, rgba=[.2,.85,.45,.5])
             return spec
         eco = importlib.import_module('k1env_eco')

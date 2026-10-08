@@ -11,7 +11,7 @@ import uuid
 import queue
 from concurrent.futures import Future
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from .rules import Run, STAGES
+from .rules import Run, STAGES, RULES
 from .recording import Recorder, rows
 from .backend import Backend, PUBLIC_SHA, TELEOP_SHA
 
@@ -64,7 +64,7 @@ class Game:
             self.last_command = 0.
             self.directory = Path(self.args.output)/str(uuid.uuid4())
             metadata = dict(stage=stage,policy='v5.6.3',public_commit=PUBLIC_SHA,teleop_commit=TELEOP_SHA,
-                            rules='ecowalk-game-1',physics_dt=self.backend.sim.m.opt.timestep,
+                            rules=RULES,course=STAGES[stage],physics_dt=self.backend.sim.m.opt.timestep,
                             seed=5,mujoco_version=self.backend.mj.__version__,numpy_version=__import__('numpy').__version__,torch_version=__import__('torch').__version__,power_model='sum(tau^2/Km^2 + max(tau*qd,0)); no regeneration; all 23 motors')
             self.recorder = Recorder(self.directory,metadata,self.args.rosbag)
             self.capture(0.,0.,set())
@@ -196,7 +196,8 @@ class Game:
                         directory=str(self.directory) if self.directory else None,replay=self.replay_row,render_error=self.render_error,render_fps=round(self.render_fps,1),
                         render_target_fps=getattr(self.args,"render_fps",30),real_time_factor=round(self.real_time_factor,2),
                         current_power_w=self.current_power,worker_error=self.worker_error,
-                        ranking_enabled=bool(getattr(self.args,"ranking_url",None)))
+                        ranking_enabled=bool(getattr(self.args,"ranking_url",None)),
+                        course=STAGES[self.backend.stage] if self.backend else None)
 
 class Handler(BaseHTTPRequestHandler):
     def log_message(self,*args):
@@ -215,12 +216,12 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if self.path == '/':
                 self.send(200,(Path(__file__).parent/'web/index.html').read_bytes(),'text/html; charset=utf-8')
-            elif self.path in ('/game.js','/controls.js','/style.css'):
+            elif self.path in ('/game.js','/controls.js','/minimap.js','/style.css'):
                 mime = 'text/css' if self.path.endswith('.css') else 'text/javascript'
                 self.send(200,(Path(__file__).parent/'web'/self.path[1:]).read_bytes(),mime+'; charset=utf-8')
             elif self.path == '/status':
                 self.send(200,g.status())
-            elif self.path in ('/ranking/1','/ranking/2'):
+            elif self.path in tuple(f'/ranking/{stage}' for stage in STAGES):
                 if not g.args.ranking_url:
                     self.send(400,{'error':'ランキング接続先が未設定です'}); return
                 req = Request(g.args.ranking_url.rstrip('/')+self.path,headers={'Authorization':'Bearer '+os.environ.get('K1_RANKING_TOKEN','')})
@@ -321,7 +322,7 @@ def main():
     p.add_argument('--output',default='runs')
     p.add_argument('--rosbag',action='store_true')
     p.add_argument('--replay')
-    p.add_argument('--stage',type=int,choices=[1,2],default=1,help='stage for rosbag-only replay')
+    p.add_argument('--stage',type=int,choices=sorted(STAGES),default=1,help='stage for rosbag-only replay')
     p.add_argument('--battery-wh',type=float)
     p.add_argument('--usable-fraction',type=float,default=.8)
     p.add_argument('--auxiliary-w',type=float,default=0.)
