@@ -127,7 +127,9 @@ class Backend:
             cam.lookat[:] = self.data.xpos[head] + [np.cos(yaw)*.8,np.sin(yaw)*.8,.1]
             cam.distance = .5; cam.azimuth = np.degrees(yaw); cam.elevation = -5
         else:
-            cam.lookat[:] = q[:3]; cam.distance = 4.; cam.azimuth = np.degrees(yaw)+150; cam.elevation = -22
+            # MuJoCo azimuth is the viewing direction: yaw looks along the robot's heading.
+            # Aim below the pelvis so head and feet both fit in the 16:9 frame.
+            cam.lookat[:] = [q[0],q[1],.85]; cam.distance = 4.; cam.azimuth = np.degrees(yaw); cam.elevation = -12
         self.renderer.update_scene(self.data, camera=cam)
         self.renderer.scene.flags[self.mj.mjtRndFlag.mjRND_SHADOW] = False
         self.renderer.scene.flags[self.mj.mjtRndFlag.mjRND_REFLECTION] = False
