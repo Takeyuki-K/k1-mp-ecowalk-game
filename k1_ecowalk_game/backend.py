@@ -104,7 +104,9 @@ class Backend:
 
     def frame(self, state=None, mode=None, camera_mode=None):
         if self.renderer is None:
-            self.renderer = self.mj.Renderer(self.sim.m, height=360, width=640)
+            self.sim.m.vis.global_.offwidth = max(1280,self.sim.m.vis.global_.offwidth)
+            self.sim.m.vis.global_.offheight = max(720,self.sim.m.vis.global_.offheight)
+            self.renderer = self.mj.Renderer(self.sim.m, height=720, width=1280)
         env = self.sim.env if mode is None else (self.sim.g.R if mode else self.sim.g.W)
         self.mj.mj_setState(env.m, self.data, env.state[0] if state is None else state, env.spec_state)
         self.mj.mj_forward(self.sim.m, self.data)

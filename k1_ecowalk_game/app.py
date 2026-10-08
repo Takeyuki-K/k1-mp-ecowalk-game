@@ -160,7 +160,7 @@ class Game:
                     try:
                         from PIL import Image
                         buf = io.BytesIO()
-                        Image.fromarray(backend.frame(state,mode,camera)).save(buf,format='JPEG',quality=78)
+                        Image.fromarray(backend.frame(state,mode,camera)).save(buf,format='JPEG',quality=90)
                         frame = buf.getvalue()
                         with self.lock:
                             if backend is self.backend:
