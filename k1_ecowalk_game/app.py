@@ -353,9 +353,16 @@ class Handler(BaseHTTPRequestHandler):
                     g.command = (max(0.,min(4.5,v)),max(-1.,min(1.,w)),bool(body.get('brake',False)))
                     g.last_command = time.monotonic()
             elif self.path == '/camera':
+                import math
+                yaw = float(body.get('yaw', 0))
+                pitch = float(body.get('pitch', 0))
+                if not math.isfinite(yaw) or not math.isfinite(pitch):
+                    raise ValueError('invalid camera angles')
                 with g.lock:
                     if g.backend:
                         g.backend.camera_mode = 'first' if body.get('mode') == 'first' else 'third'
+                        g.backend.camera_yaw = max(-90., min(90., yaw))
+                        g.backend.camera_pitch = max(-65., min(45., pitch))
             elif self.path == '/submit':
                 with g.lock:
                     if body.get('id'):
