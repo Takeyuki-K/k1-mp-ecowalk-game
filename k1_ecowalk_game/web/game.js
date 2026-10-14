@@ -1,11 +1,11 @@
 'use strict';
 const $=id=>document.getElementById(id),keys=new Set();
-let screen='menu',stage=1,speed=.9,inputMode='keyboard',first=false,starting=false,lastStatus=null,padActive=false,padCommand={v:0,w:0,brake:false},gamepadArmed=false,resultShown=false,brakeLatched=false,lookYaw=0,lookPitch=0,lookPointer=null,lookPending=false,lookDirty=false,lookVelocityYaw=0,lookVelocityPitch=0,lookLastTime=0,lookLastSent=0;
+let screen='menu',stage=1,speed=.9,inputMode='keyboard',first=false,starting=false,lastStatus=null,padActive=false,padCommand={v:0,w:0,brake:false},gamepadArmed=false,resultShown=false,brakeLatched=false,lookYaw=0,lookPitch=0,lookPointer=null,lookPending=false,lookDirty=false,lookVelocityYaw=0,lookVelocityPitch=0,lookLastTime=0,lookLastSent=0,lookReturnYaw=false;
 async function post(path,body){const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const data=await r.json();if(!r.ok)throw Error(data.error);return data;}
 function notice(text,info=false){$('notice').textContent=text;$('notice').classList.toggle('info',info);$('notice').hidden=!text;}
 function resetInput(){brakeLatched=false;keys.clear();padActive=false;padCommand={v:0,w:0,brake:false};gamepadArmed=false;drawPad();}
 function zero(brake=false){resetInput();brakeLatched=brake;post('/command',{v:0,w:0,brake}).catch(e=>notice(e.message));}
-function resetLook(){lookYaw=0;lookPitch=0;sendLook();}
+function resetLook(){lookYaw=0;lookPitch=0;lookReturnYaw=false;sendLook();}
 function sendLook(){if(screen!=='play'||!first)return; if(lookPending){lookDirty=true;return;}lookPending=true;post('/camera',{mode:'first',yaw:lookYaw,pitch:lookPitch}).catch(e=>notice(e.message)).finally(()=>{lookPending=false;if(lookDirty){lookDirty=false;sendLook();}});}
 function changeLook(yawDelta,pitchDelta){if(screen!=='play'||!first||modalOpen())return;lookYaw=Math.max(-90,Math.min(90,lookYaw+yawDelta));lookPitch=Math.max(-65,Math.min(45,lookPitch+pitchDelta));sendLook();}
 function modalOpen(){return [...document.querySelectorAll('dialog')].some(d=>d.open);}
@@ -20,18 +20,19 @@ function setInputMode(mode){zero();inputMode=mode;$('keyboardMode').classList.to
 document.querySelectorAll('[data-stage]').forEach(b=>b.onclick=()=>start(+b.dataset.stage));document.querySelectorAll('[data-speed]').forEach(b=>b.onclick=()=>setSpeed(+b.dataset.speed));document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>$(b.dataset.close).close());document.querySelectorAll('[data-ranking]').forEach(b=>b.onclick=()=>ranking(+b.dataset.ranking));
 $('home').onclick=home;$('quit').onclick=home;$('stop').onclick=()=>zero();$('brake').onclick=()=>zero(true);$('camera').onclick=camera;$('helpOpen').onclick=()=>openDialog('helpDialog');$('rankingOpen').onclick=()=>{openDialog('rankingDialog');ranking(stage);};$('keyboardMode').onclick=()=>setInputMode('keyboard');$('joystickMode').onclick=()=>setInputMode('joystick');$('slower').onclick=()=>setSpeed(speed-.1);$('faster').onclick=()=>setSpeed(speed+.1);$('retry').onclick=()=>start(stage);$('resultHome').onclick=home;$('resultRanking').onclick=()=>{$('resultDialog').close();openDialog('rankingDialog');ranking(stage);};$('useGamepad').onchange=()=>zero();
 $('fullscreen').onclick=async()=>{try{if(document.fullscreenElement)await document.exitFullscreen();else await $('game').requestFullscreen();}catch(e){notice('ブラウザの全画面表示を使用できません。F11も利用できます。');}};
-window.addEventListener('keydown',e=>{const k=e.key.toLowerCase();if(['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName))return;if(k==='escape'){e.preventDefault();zero();if(modalOpen()){for(const d of document.querySelectorAll('dialog'))d.close();}else home();return;}if(modalOpen()||screen!=='play'||starting)return;if([' ','arrowup','arrowleft','arrowright','arrowdown'].includes(k))e.preventDefault();if(e.repeat)return;if(k===' '){zero();return;}if(k==='b'){zero(true);return;}if(k==='c'){camera();return;}if(first&&['i','j','k','l','r'].includes(k)){if(k==='r'){resetLook();lookVelocityYaw=0;lookVelocityPitch=0;}else keys.add(k);return;}if(k==='+'||k==='='){setSpeed(speed+.1);return;}if(k==='-'){setSpeed(speed-.1);return;}if(inputMode==='keyboard'){brakeLatched=false;keys.add(k);}});
+window.addEventListener('keydown',e=>{const k=e.key.toLowerCase();if(['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName))return;if(k==='escape'){e.preventDefault();zero();if(modalOpen()){for(const d of document.querySelectorAll('dialog'))d.close();}else home();return;}if(modalOpen()||screen!=='play'||starting)return;if([' ','arrowup','arrowleft','arrowright','arrowdown'].includes(k))e.preventDefault();if(e.repeat)return;if(k===' '){zero();return;}if(k==='b'){zero(true);return;}if(k==='c'){camera();return;}if(first&&['i','j','k','l','r'].includes(k)){if(k==='r'){resetLook();lookVelocityYaw=0;lookVelocityPitch=0;}else {keys.add(k);if(k==='j'||k==='l')lookReturnYaw=false;}return;}if(k==='+'||k==='='){setSpeed(speed+.1);return;}if(k==='-'){setSpeed(speed-.1);return;}if(inputMode==='keyboard'){brakeLatched=false;keys.add(k);}});
 function animateLook(timestamp){
   const dt=lookLastTime?Math.min((timestamp-lookLastTime)/1000,.05):0;
   lookLastTime=timestamp;
   const enabled=first&&screen==='play'&&!modalOpen()&&!starting&&!document.hidden&&document.hasFocus();
-  const yawInput=enabled?Number(keys.has('l'))-Number(keys.has('j')):0;
+  const yawInput=enabled?Number(keys.has('j'))-Number(keys.has('l')):0;
   const pitchInput=enabled?Number(keys.has('i'))-Number(keys.has('k')):0;
   const blend=1-Math.exp(-dt/.12);
   lookVelocityYaw+=(yawInput*50-lookVelocityYaw)*blend;
   lookVelocityPitch+=(pitchInput*50-lookVelocityPitch)*blend;
-  if(enabled&&dt&&Math.abs(lookVelocityYaw)+Math.abs(lookVelocityPitch)>.08){
-    lookYaw=Math.max(-90,Math.min(90,lookYaw+lookVelocityYaw*dt));
+  if(enabled&&dt&&(Math.abs(lookVelocityYaw)+Math.abs(lookVelocityPitch)>.08||lookReturnYaw)){
+    if(lookReturnYaw && !keys.has('j') && !keys.has('l')) {lookYaw*=Math.exp(-dt/.20);if(Math.abs(lookYaw)<.05){lookYaw=0;lookReturnYaw=false;}lookVelocityYaw=0;}
+    else lookYaw=Math.max(-90,Math.min(90,lookYaw+lookVelocityYaw*dt));
     lookPitch=Math.max(-65,Math.min(45,lookPitch+lookVelocityPitch*dt));
     if(timestamp-lookLastSent>=50){sendLook();lookLastSent=timestamp;}
   }
@@ -41,7 +42,7 @@ requestAnimationFrame(animateLook);
 $('view').addEventListener('pointerdown',e=>{if(!first||screen!=='play'||modalOpen()||e.button!==0)return;lookPointer={id:e.pointerId,x:e.clientX,y:e.clientY};$('view').setPointerCapture?.(e.pointerId);e.preventDefault();});
 $('view').addEventListener('pointermove',e=>{if(!lookPointer||lookPointer.id!==e.pointerId)return;const dx=e.clientX-lookPointer.x,dy=e.clientY-lookPointer.y;lookPointer.x=e.clientX;lookPointer.y=e.clientY;changeLook(dx*.25,-dy*.25);});
 for(const event of ['pointerup','pointercancel','lostpointercapture'])$('view').addEventListener(event,()=>{lookPointer=null;});
-window.addEventListener('keyup',e=>keys.delete(e.key.toLowerCase()));window.addEventListener('blur',()=>zero());document.addEventListener('visibilitychange',()=>{if(document.hidden)zero();});document.querySelectorAll('dialog').forEach(d=>{d.addEventListener('close',resetInput);d.addEventListener('cancel',()=>zero());});
+window.addEventListener('keyup',e=>{const k=e.key.toLowerCase();keys.delete(k);if((k==='j'||k==='l')&&!keys.has('j')&&!keys.has('l'))lookReturnYaw=true;});window.addEventListener('blur',()=>zero());document.addEventListener('visibilitychange',()=>{if(document.hidden)zero();});document.querySelectorAll('dialog').forEach(d=>{d.addEventListener('close',resetInput);d.addEventListener('cancel',()=>zero());});
 const pad=$('pad'),ctx=pad.getContext('2d'),C=200,R=165;
 function drawPad(){ctx.clearRect(0,0,400,400);ctx.fillStyle='#12242a';ctx.fillRect(0,0,400,400);ctx.fillStyle='#214840';ctx.fillRect(35,95,330,105);ctx.fillStyle='#1d3b55';ctx.fillRect(35,35,330,60);ctx.strokeStyle='#688b88';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(35,200);ctx.lineTo(365,200);ctx.moveTo(200,35);ctx.lineTo(200,365);ctx.stroke();ctx.fillStyle='#b7d5d0';ctx.font='16px system-ui';ctx.textAlign='center';ctx.fillText('走行',200,60);ctx.fillText('歩行',200,135);ctx.fillText('停止 / その場旋回',200,230);ctx.fillText('← 左',70,275);ctx.fillText('右 →',330,275);ctx.fillText('後退なし',200,355);const x=C-padCommand.w*R,y=C-Math.pow(padCommand.v/4.5,1/1.7)*R;ctx.strokeStyle='#91f5c060';ctx.beginPath();ctx.moveTo(C,C);ctx.lineTo(x,y);ctx.stroke();ctx.fillStyle='#91f5c0';ctx.beginPath();ctx.arc(x,y,15,0,Math.PI*2);ctx.fill();}
 function padMove(e){const b=pad.getBoundingClientRect(),x=((e.clientX-b.left)/b.width*400-C)/R,y=((e.clientY-b.top)/b.height*400-C)/R;padCommand=EcoControls.joystick(x,y);drawPad();}
