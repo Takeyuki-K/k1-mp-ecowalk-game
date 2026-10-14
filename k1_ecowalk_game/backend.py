@@ -129,10 +129,20 @@ class Backend:
             # Free camera near head, looking along robot heading (MuJoCo camera conventions).
             self.follow_camera.reset()
             head = self.sim.m.body('head_link').id
-            cam.lookat[:] = self.data.xpos[head] + [np.cos(yaw)*.8,np.sin(yaw)*.8,.1]
-            cam.distance = .5
-            cam.azimuth = np.degrees(yaw) + self.camera_yaw
-            cam.elevation = -5 + self.camera_pitch
+            # Eye is anchored at the front of the head, rather than orbiting
+            # around a target in front of the robot. A small forward clearance
+            # avoids starting inside the head mesh (geometry dependent).
+            heading = np.array([np.cos(yaw), np.sin(yaw), 0.])
+            eye = self.data.xpos[head] + .12 * heading + [0., 0., .03]
+            azimuth = yaw + np.radians(self.camera_yaw)
+            elevation = np.radians(-5. + self.camera_pitch)
+            direction = np.array([np.cos(elevation)*np.cos(azimuth),
+                                  np.cos(elevation)*np.sin(azimuth),
+                                  np.sin(elevation)])
+            cam.distance = .3
+            cam.lookat[:] = eye + cam.distance * direction
+            cam.azimuth = np.degrees(azimuth)
+            cam.elevation = np.degrees(elevation)
         else:
             # MuJoCo azimuth is the viewing direction: yaw looks along the robot's heading.
             # Aim below the pelvis so head and feet both fit in the 16:9 frame.
