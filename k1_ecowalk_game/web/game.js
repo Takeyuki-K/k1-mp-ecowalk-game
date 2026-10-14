@@ -1,6 +1,6 @@
 'use strict';
 const $=id=>document.getElementById(id),keys=new Set();
-let screen='menu',stage=1,speed=.9,inputMode='keyboard',first=false,starting=false,lastStatus=null,padActive=false,padCommand={v:0,w:0,brake:false},gamepadArmed=false,resultShown=false,brakeLatched=false,lookYaw=0,lookPitch=0,lookPointer=null,lookPending=false,lookDirty=false;
+let screen='menu',stage=1,speed=.9,inputMode='keyboard',first=false,starting=false,lastStatus=null,padActive=false,padCommand={v:0,w:0,brake:false},gamepadArmed=false,resultShown=false,brakeLatched=false,lookYaw=0,lookPitch=0,lookPointer=null,lookPending=false,lookDirty=false,lookVelocityYaw=0,lookVelocityPitch=0,lookLastTime=0,lookLastSent=0;
 async function post(path,body){const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const data=await r.json();if(!r.ok)throw Error(data.error);return data;}
 function notice(text,info=false){$('notice').textContent=text;$('notice').classList.toggle('info',info);$('notice').hidden=!text;}
 function resetInput(){brakeLatched=false;keys.clear();padActive=false;padCommand={v:0,w:0,brake:false};gamepadArmed=false;drawPad();}
@@ -20,7 +20,24 @@ function setInputMode(mode){zero();inputMode=mode;$('keyboardMode').classList.to
 document.querySelectorAll('[data-stage]').forEach(b=>b.onclick=()=>start(+b.dataset.stage));document.querySelectorAll('[data-speed]').forEach(b=>b.onclick=()=>setSpeed(+b.dataset.speed));document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>$(b.dataset.close).close());document.querySelectorAll('[data-ranking]').forEach(b=>b.onclick=()=>ranking(+b.dataset.ranking));
 $('home').onclick=home;$('quit').onclick=home;$('stop').onclick=()=>zero();$('brake').onclick=()=>zero(true);$('camera').onclick=camera;$('helpOpen').onclick=()=>openDialog('helpDialog');$('rankingOpen').onclick=()=>{openDialog('rankingDialog');ranking(stage);};$('keyboardMode').onclick=()=>setInputMode('keyboard');$('joystickMode').onclick=()=>setInputMode('joystick');$('slower').onclick=()=>setSpeed(speed-.1);$('faster').onclick=()=>setSpeed(speed+.1);$('retry').onclick=()=>start(stage);$('resultHome').onclick=home;$('resultRanking').onclick=()=>{$('resultDialog').close();openDialog('rankingDialog');ranking(stage);};$('useGamepad').onchange=()=>zero();
 $('fullscreen').onclick=async()=>{try{if(document.fullscreenElement)await document.exitFullscreen();else await $('game').requestFullscreen();}catch(e){notice('ブラウザの全画面表示を使用できません。F11も利用できます。');}};
-window.addEventListener('keydown',e=>{const k=e.key.toLowerCase();if(['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName))return;if(k==='escape'){e.preventDefault();zero();if(modalOpen()){for(const d of document.querySelectorAll('dialog'))d.close();}else home();return;}if(modalOpen()||screen!=='play'||starting)return;if([' ','arrowup','arrowleft','arrowright','arrowdown'].includes(k))e.preventDefault();if(e.repeat)return;if(k===' '){zero();return;}if(k==='b'){zero(true);return;}if(k==='c'){camera();return;}if(first&&['i','j','k','l','r'].includes(k)){if(k==='r')resetLook();else changeLook(k==='j'?-8:k==='l'?8:0,k==='i'?8:k==='k'?-8:0);return;}if(k==='+'||k==='='){setSpeed(speed+.1);return;}if(k==='-'){setSpeed(speed-.1);return;}if(inputMode==='keyboard'){brakeLatched=false;keys.add(k);}});
+window.addEventListener('keydown',e=>{const k=e.key.toLowerCase();if(['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName))return;if(k==='escape'){e.preventDefault();zero();if(modalOpen()){for(const d of document.querySelectorAll('dialog'))d.close();}else home();return;}if(modalOpen()||screen!=='play'||starting)return;if([' ','arrowup','arrowleft','arrowright','arrowdown'].includes(k))e.preventDefault();if(e.repeat)return;if(k===' '){zero();return;}if(k==='b'){zero(true);return;}if(k==='c'){camera();return;}if(first&&['i','j','k','l','r'].includes(k)){if(k==='r'){resetLook();lookVelocityYaw=0;lookVelocityPitch=0;}else keys.add(k);return;}if(k==='+'||k==='='){setSpeed(speed+.1);return;}if(k==='-'){setSpeed(speed-.1);return;}if(inputMode==='keyboard'){brakeLatched=false;keys.add(k);}});
+function animateLook(timestamp){
+  const dt=lookLastTime?Math.min((timestamp-lookLastTime)/1000,.05):0;
+  lookLastTime=timestamp;
+  const enabled=first&&screen==='play'&&!modalOpen()&&!starting&&!document.hidden&&document.hasFocus();
+  const yawInput=enabled?Number(keys.has('l'))-Number(keys.has('j')):0;
+  const pitchInput=enabled?Number(keys.has('i'))-Number(keys.has('k')):0;
+  const blend=1-Math.exp(-dt/.12);
+  lookVelocityYaw+=(yawInput*50-lookVelocityYaw)*blend;
+  lookVelocityPitch+=(pitchInput*50-lookVelocityPitch)*blend;
+  if(enabled&&dt&&Math.abs(lookVelocityYaw)+Math.abs(lookVelocityPitch)>.08){
+    lookYaw=Math.max(-90,Math.min(90,lookYaw+lookVelocityYaw*dt));
+    lookPitch=Math.max(-65,Math.min(45,lookPitch+lookVelocityPitch*dt));
+    if(timestamp-lookLastSent>=50){sendLook();lookLastSent=timestamp;}
+  }
+  requestAnimationFrame(animateLook);
+}
+requestAnimationFrame(animateLook);
 $('view').addEventListener('pointerdown',e=>{if(!first||screen!=='play'||modalOpen()||e.button!==0)return;lookPointer={id:e.pointerId,x:e.clientX,y:e.clientY};$('view').setPointerCapture?.(e.pointerId);e.preventDefault();});
 $('view').addEventListener('pointermove',e=>{if(!lookPointer||lookPointer.id!==e.pointerId)return;const dx=e.clientX-lookPointer.x,dy=e.clientY-lookPointer.y;lookPointer.x=e.clientX;lookPointer.y=e.clientY;changeLook(dx*.25,-dy*.25);});
 for(const event of ['pointerup','pointercancel','lostpointercapture'])$('view').addEventListener(event,()=>{lookPointer=null;});
