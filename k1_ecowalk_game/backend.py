@@ -93,6 +93,8 @@ class Backend:
         self.data = mj.MjData(self.sim.m)
         self.renderer = None
         self.camera_mode = 'third'
+        self.camera_yaw = 0.0  # Degrees relative to robot heading (render-only)
+        self.camera_pitch = 0.0  # Degrees relative to the default camera elevation
         self.follow_camera = FollowCamera()
         self.stage = stage
 
@@ -128,7 +130,9 @@ class Backend:
             self.follow_camera.reset()
             head = self.sim.m.body('head_link').id
             cam.lookat[:] = self.data.xpos[head] + [np.cos(yaw)*.8,np.sin(yaw)*.8,.1]
-            cam.distance = .5; cam.azimuth = np.degrees(yaw); cam.elevation = -5
+            cam.distance = .5
+            cam.azimuth = np.degrees(yaw) + self.camera_yaw
+            cam.elevation = -5 + self.camera_pitch
         else:
             # MuJoCo azimuth is the viewing direction: yaw looks along the robot's heading.
             # Aim below the pelvis so head and feet both fit in the 16:9 frame.
