@@ -8,6 +8,22 @@ v5.6.3のK1 MP EcoWalkをCPU MuJoCoでテレオペし、ゴールまでの推定
 
 本ゲームは、プロジェクト作成者（Takeyuki-K）が発案・仕様・評価方針を策定し、OpenAIのChatGPTとの設計検討、およびCodexによる実装支援を受けて開発しました。AIを利用して制作したことは、動作や検証結果を保証するものではありません。実装の検証範囲は「検証」節をご確認ください。
 
+## プレイ動画 — Stage 1〜3
+
+各ステージのプレイ動画を短いGIFで紹介します。
+
+### Stage 1 — 直線コース
+
+![Stage 1](docs/images/stage1.gif)
+
+### Stage 2 — 障害物回避
+
+![Stage 2](docs/images/stage2.gif)
+
+### Stage 3 — S字通路
+
+![Stage 3](docs/images/stage3.gif)
+
 ## 起動
 
 ```bash
