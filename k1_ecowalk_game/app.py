@@ -11,15 +11,17 @@ import uuid
 import queue
 from concurrent.futures import Future
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from .rules import Run, STAGES, RULES
+from .rules import Run, STAGES, RULES, public_course
 from .recording import Recorder, rows
 from .backend import Backend, PUBLIC_SHA, TELEOP_SHA
+from .obstacles import SCENERY_VERSION
 from .archive import bundle, check_bundle, recordings, identifier, MAX_BYTES
 from .ranking import initialize_database, entries, save_submission, replay_payload
 
 class Game:
     def __init__(self, args):
         self.args = args
+        self.observation_only = getattr(args, 'observation_only', False)
         self.lock = threading.RLock()
         self.jobs = queue.Queue()
         self.backend = None
@@ -104,6 +106,8 @@ class Game:
             if self.backend:
                 self.backend.close(close_renderer=False)
             self.backend = Backend(self.args.ecowalk_root,self.args.teleop_root,stage)
+            if self.observation_only:
+                self.backend.camera_mode = 'first'
             self.replay = None
             self.playback = None
             self.replay_row = None
@@ -114,7 +118,7 @@ class Game:
             self.last_command = 0.
             self.directory = Path(self.args.output)/str(uuid.uuid4())
             metadata = dict(stage=stage,policy='v5.6.3',public_commit=PUBLIC_SHA,teleop_commit=TELEOP_SHA,
-                            rules=RULES,course=STAGES[stage],battery_wh=self.args.battery_wh,usable_fraction=self.args.usable_fraction,auxiliary_w=self.args.auxiliary_w,physics_dt=self.backend.sim.m.opt.timestep,
+                            rules=RULES,course=public_course(STAGES[stage]),scenery_version=SCENERY_VERSION if stage == 4 else None,battery_wh=self.args.battery_wh,usable_fraction=self.args.usable_fraction,auxiliary_w=self.args.auxiliary_w,physics_dt=self.backend.sim.m.opt.timestep,
                             seed=5,mujoco_version=self.backend.mj.__version__,numpy_version=__import__('numpy').__version__,torch_version=__import__('torch').__version__,power_model='sum(tau^2/Km^2 + max(tau*qd,0)); no regeneration; all 23 motors')
             self.recorder = Recorder(self.directory,metadata,self.args.rosbag)
             self.capture(0.,0.,set())
@@ -187,7 +191,7 @@ class Game:
                     self.current_power = power
                     q, qv = b.sim.qpos(), b.sim.qvel()
                     stopped = b.sim.status()['mode'] == 'stand' and cmd[:2] == (0.,0.)
-                    self.run.update(dt,power,q[:3],float((qv[:2]**2).sum()**.5),float(qv[5]),contacts,b.sim.fallen,stopped)
+                    self.run.update(dt,power,q[:3],float((qv[:2]**2).sum()**.5),float(qv[5]),contacts,b.sim.fallen,stopped,b.collision_stop)
                     self.capture(power,dt,contacts)
                     if self.run.outcome != 'playing':
                         self.finish()
@@ -210,7 +214,7 @@ class Game:
                     if backend:
                         mode = int(backend.sim.g.mode[0])
                         state = backend.sim.env.state[0].copy()
-                        camera = backend.camera_mode
+                        camera = 'first' if self.observation_only else backend.camera_mode
                 if backend is not previous:
                     if previous:
                         previous.close_renderer()
@@ -252,14 +256,15 @@ class Game:
         with self.lock:
             return dict(rules=RULES,result=self.result or (self.run.result(self.args.battery_wh,self.args.usable_fraction,self.args.auxiliary_w) if self.run else None),
                         sim=self.backend.sim.status() if self.backend else None,
-                        directory=str(self.directory) if self.directory else None,
+                        directory=str(self.directory) if self.directory and not self.observation_only else None,
                         replay=(dict(paused=self.playback['paused'],speed=self.playback['speed'],name=self.playback['name'],
                                      time=self.replay_row['t'],duration=self.playback['data'][-1]['t'],
-                                     fraction=self.playback['index']/max(1,len(self.playback['data'])-1)) if self.playback else (dict(time=self.replay_row['t']) if self.replay_row else None)),render_error=self.render_error,render_fps=round(self.render_fps,1),
+                                     fraction=self.playback['index']/max(1,len(self.playback['data'])-1)) if self.playback else (dict(time=self.replay_row['t']) if self.replay_row else None)),render_error=('描画エラー' if self.observation_only and self.render_error else self.render_error),render_fps=round(self.render_fps,1),
                         render_target_fps=getattr(self.args,"render_fps",30),real_time_factor=round(self.real_time_factor,2),
-                        current_power_w=self.current_power,worker_error=self.worker_error,
-                        ranking_enabled=True,ranking_remote=bool(getattr(self.args,'ranking_url',None)),
-                        course=self.backend.course if self.backend else None)
+                        current_power_w=self.current_power,worker_error=('シミュレーションエラー' if self.observation_only and self.worker_error else self.worker_error),
+                        ranking_enabled=not self.observation_only,ranking_remote=bool(getattr(self.args,'ranking_url',None)),
+                        observation_only=self.observation_only,
+                        course=public_course(self.backend.course) if self.backend else None)
 
 class Handler(BaseHTTPRequestHandler):
     def log_message(self,*args):
@@ -276,6 +281,10 @@ class Handler(BaseHTTPRequestHandler):
         g = self.server.game
         self.path = urlsplit(self.path).path
         try:
+            if getattr(g,'observation_only',False) and self.path not in (
+                    '/', '/game.js','/controls.js','/minimap.js','/archive.js','/style.css',
+                    '/status','/frame.jpg','/stream.mjpg'):
+                self.send(403,{'error':'観測限定モードではこの操作を利用できません'}); return
             if self.path == '/':
                 self.send(200,(Path(__file__).parent/'web/index.html').read_bytes(),'text/html; charset=utf-8')
             elif self.path in ('/game.js','/controls.js','/minimap.js','/archive.js','/style.css'):
@@ -305,7 +314,7 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 self.send(404,{'error':'not found'})
         except Exception as e:
-            self.send(500,{'error':str(e)})
+            self.send(500,{'error':'要求を処理できません' if getattr(g,'observation_only',False) else str(e)})
 
     def stream_frames(self):
         g = self.server.game
@@ -334,6 +343,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         g = self.server.game
         try:
+            if getattr(g,'observation_only',False) and self.path not in (
+                    '/start','/command','/camera','/abort'):
+                self.send(403,{'error':'観測限定モードではこの操作を利用できません'}); return
             # Local control API: same-origin requests only, no external website control.
             origin = self.headers.get('Origin')
             if origin and origin != 'http://'+self.headers.get('Host',''):
@@ -360,7 +372,7 @@ class Handler(BaseHTTPRequestHandler):
                     raise ValueError('invalid camera angles')
                 with g.lock:
                     if g.backend:
-                        g.backend.camera_mode = 'first' if body.get('mode') == 'first' else 'third'
+                        g.backend.camera_mode = 'first' if g.observation_only or body.get('mode') == 'first' else 'third'
                         g.backend.camera_yaw = max(-90., min(90., yaw))
                         g.backend.camera_pitch = max(-65., min(45., pitch))
             elif self.path == '/submit':
@@ -409,7 +421,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.send(404,{'error':'not found'}); return
             self.send(200,{'ok':True})
         except Exception as e:
-            self.send(400,{'error':str(e)})
+            self.send(400,{'error':'要求を処理できません' if getattr(g,'observation_only',False) else str(e)})
 
 def main():
     p = argparse.ArgumentParser()
@@ -420,12 +432,16 @@ def main():
     p.add_argument('--render-fps',type=int,default=30,choices=range(5,61),metavar='5..60')
     p.add_argument('--output',default='runs')
     p.add_argument('--rosbag',action='store_true')
+    p.add_argument('--observation-only',action='store_true',
+                   help='first-person images and normal controls only; block archives/replays/ranking APIs')
     p.add_argument('--replay')
     p.add_argument('--stage',type=int,choices=sorted(STAGES),default=1,help='stage for rosbag-only replay')
     p.add_argument('--battery-wh',type=float,default=400.,help='battery capacity in Wh (default: 400)')
     p.add_argument('--usable-fraction',type=float,default=.8)
     p.add_argument('--auxiliary-w',type=float,default=0.)
     args = p.parse_args()
+    if args.observation_only and args.replay:
+        p.error('--observation-only cannot be combined with --replay')
     import math
     if not all(math.isfinite(v) for v in (args.battery_wh,args.usable_fraction,args.auxiliary_w)) or args.battery_wh <= 0 or not 0 < args.usable_fraction <= 1 or args.auxiliary_w < 0:
         p.error('invalid battery/power configuration')
@@ -437,7 +453,7 @@ def main():
             source=Path(args.replay);data=list(rows(source))
             if not data:p.error('empty replay')
             meta_path=source.parent/'metadata.json';result_path=source.parent/'result.json'
-            metadata=json.loads(meta_path.read_text()) if meta_path.exists() else dict(stage=args.stage,public_commit=PUBLIC_SHA,rules=RULES,course=STAGES[args.stage])
+            metadata=json.loads(meta_path.read_text()) if meta_path.exists() else dict(stage=args.stage,public_commit=PUBLIC_SHA,rules=RULES,course=STAGES[args.stage],scenery_version=SCENERY_VERSION if args.stage == 4 else None)
             payload=dict(metadata=metadata,result=json.loads(result_path.read_text()) if result_path.exists() else data[-1]['result'],states=''.join(json.dumps(row)+'\n' for row in data))
             g.load_replay(payload,check_bundle(payload))
     server = ThreadingHTTPServer(('127.0.0.1',args.port),Handler); server.game = g

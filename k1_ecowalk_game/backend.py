@@ -6,29 +6,43 @@ import sys
 import numpy as np
 from .rules import STAGES
 from .camera import FollowCamera
+from .obstacles import Motion, add_obstacles
 
 PUBLIC_SHA = '04b1c0fded94dcde76411e6bd9d914a56d41102a'
 TELEOP_SHA = 'a5ea3dbf4f97501c18ff090f86ff4cd413f6aaea'
 
 class Meter:
-    def __init__(self, roll, env):
+    def __init__(self, roll, env, stage, selected):
         import mujoco as mj
         self.roll, self.e, self.mj = roll, env, mj
         self.d = mj.MjData(env.m)
         self.energy = 0.
         self.contacts = set()
         self.trace = []
+        self.penetration = 0.
+        self.motion = Motion(env.m, stage)
+        self.selected = selected
+        self.robot_geoms = {i for i in range(env.m.ngeom)
+                            if env.m.geom_bodyid[i] != 0
+                            and env.m.body_mocapid[env.m.geom_bodyid[i]] < 0}
         from k1env import ACT_JOINTS
         self.names = ACT_JOINTS
         self.km = np.array([2.2 if any(k in j for k in ('ankle_roll', 'shoulder', 'elbow', 'wrist')) else 4. for j in ACT_JOINTS])
 
     def rollout(self, models, datas, state0, ctrl, nstep, **kw):
-        out = self.roll.rollout(models, datas, state0, ctrl, nstep=nstep, **kw)
         m, d, mj = self.e.m, self.d, self.mj
+        controls = ctrl
+        if self.motion.boxes:
+            controls = self.motion.controls(m, state0, ctrl, nstep)
+            kw['control_spec'] = mj.mjtState.mjSTATE_CTRL | mj.mjtState.mjSTATE_MOCAP_POS
+        out = self.roll.rollout(models, datas, state0, controls, nstep=nstep, **kw)
+        if not self.selected():
+            return out
         states = kw['state']
         for k in range(nstep):
             st = state0[0] if k == 0 else states[0, k-1]
             mj.mj_setState(m, d, st, self.e.spec_state)
+            self.motion.apply(d, st[0])
             d.ctrl[:] = ctrl[0, k]
             mj.mj_forward(m, d)
             tau = d.qfrc_actuator[self.e.dadr]
@@ -36,6 +50,8 @@ class Meter:
             power = float(np.sum(tau*tau/self.km**2 + np.maximum(tau*qd, 0)))
             self.energy += power * m.opt.timestep
             mj.mj_setState(m, d, states[0, k], self.e.spec_state)
+            # The integrated step used the obstacle pose at its start.
+            self.motion.apply(d, st[0])
             mj.mj_forward(m, d)
             for c in d.contact:
                 if c.dist > 0:
@@ -44,8 +60,10 @@ class Meter:
                 for gid in ids:
                     name = mj.mj_id2name(m, mj.mjtObj.mjOBJ_GEOM, gid) or ''
                     other = ids[1] if gid == ids[0] else ids[0]
-                    if name.startswith(('game_obstacle_','game_wall_')) and m.geom_bodyid[other] != 0:
+                    if name.startswith(('game_obstacle_','game_wall_')) and other in self.robot_geoms:
                         self.contacts.add(name)
+                        if name.startswith('game_obstacle_'):
+                            self.penetration = max(self.penetration, -float(c.dist))
             self.trace.append((states[0, k].copy(), power))
         return out
 
@@ -74,6 +92,7 @@ class Backend:
             spec.worldbody.add_geom(name='game_goal', type=mj.mjtGeom.mjGEOM_BOX,
                                     pos=[*self.course['goal'],.005], size=[*self.course['goal_half_size'],.005],
                                     contype=0, conaffinity=0, rgba=[.2,.85,.45,.5])
+            add_obstacles(spec, mj, stage)
             return spec
         eco = importlib.import_module('k1env_eco')
         base.build_spec = eco.build_spec = stage_spec
@@ -83,22 +102,27 @@ class Backend:
         finally:
             base.build_spec = eco.build_spec = original
         self.meters = []
-        for e in (self.sim.g.W, self.sim.g.R):
+        for mode, e in enumerate((self.sim.g.W, self.sim.g.R)):
             # MotorRollout calls its inner rollout with the motor-limited controls.
             holder = e.roll if hasattr(e.roll, 'roll') else e
             attr = 'roll'
-            meter = Meter(getattr(holder, attr), e)
+            meter = Meter(getattr(holder, attr), e, stage,
+                          lambda mode=mode: int(self.sim.g.mode[0]) == mode)
             setattr(holder, attr, meter)
             self.meters.append(meter)
         self.data = mj.MjData(self.sim.m)
+        self.motion = Motion(self.sim.m, stage)
         self.renderer = None
         self.camera_mode = 'third'
         self.camera_yaw = 0.0  # Degrees relative to robot heading (render-only)
         self.camera_pitch = 0.0  # Degrees relative to the default camera elevation
         self.follow_camera = FollowCamera()
         self.stage = stage
+        self.collision_stop = False
 
     def step(self, v, w, brake=False):
+        if self.collision_stop:
+            return 0., set(), []
         self.sim.set_command(v,w)
         if brake:
             self.sim.brake()
@@ -106,12 +130,16 @@ class Backend:
             self.sim.stop()
         else:
             self.sim.start()
-        active = int(self.sim.g.mode[0])
         for meter in self.meters:
-            meter.energy = 0.; meter.contacts.clear(); meter.trace.clear()
+            meter.energy = 0.; meter.contacts.clear(); meter.trace.clear(); meter.penetration = 0.
         self.sim.step()
-        meter = self.meters[active]
-        return meter.energy/self.sim.dt, meter.contacts, meter.trace
+        # Prescribed scenery has infinite effective mass. Stop a crushed trial
+        # before sustained squeezing can force the robot through a closed gate.
+        # This ends the game, never changes an obstacle's trajectory or phase.
+        self.collision_stop = self.stage == 4 and any(m.penetration > .035 for m in self.meters)
+        return (sum(m.energy for m in self.meters)/self.sim.dt,
+                set().union(*(m.contacts for m in self.meters)),
+                [sample for m in self.meters for sample in m.trace])
 
     def frame(self, state=None, mode=None, camera_mode=None):
         if self.renderer is None:
@@ -120,6 +148,7 @@ class Backend:
             self.renderer = self.mj.Renderer(self.sim.m, height=720, width=1280)
         env = self.sim.env if mode is None else (self.sim.g.R if mode else self.sim.g.W)
         self.mj.mj_setState(env.m, self.data, env.state[0] if state is None else state, env.spec_state)
+        self.motion.apply(self.data, self.data.time)
         self.mj.mj_forward(self.sim.m, self.data)
         cam = self.mj.MjvCamera()
         q = self.data.qpos
