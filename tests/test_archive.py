@@ -61,3 +61,14 @@ def test_local_saved_record_registration(tmp_path):
             ranking=json.load(response);assert ranking['entries'][0][0]=='local';assert all(ranking['replays'].values())
         with urlopen(base+'/recordings/drive') as response:assert check_bundle(json.load(response))
     finally:server.shutdown();t.join();server.server_close()
+
+
+def test_new_stage_replay_requires_matching_scenery_version():
+    from k1_ecowalk_game.obstacles import SCENERY_VERSION
+    p=sample()
+    p['metadata'].update(stage=4,course=json.loads(json.dumps(STAGES[4])))
+    p['result']=Run(4,elapsed=2,energy_j=100,outcome='collision').result()
+    row=json.loads(p['states']);row['result']=p['result'];p['states']=json.dumps(row)+'\n'
+    with pytest.raises(ValueError,match='バージョン'):check_bundle(p)
+    p['metadata']['scenery_version']=SCENERY_VERSION
+    assert check_bundle(p)[0]['result']['outcome']=='collision'

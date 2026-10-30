@@ -19,9 +19,12 @@ def bundle(directory):
 def check_bundle(payload):
     from .backend import PUBLIC_SHA
     from .rules import STAGES
+    from .obstacles import SCENERY_VERSION
     meta=payload['metadata']
     if meta.get('stage') not in STAGES or meta.get('public_commit')!=PUBLIC_SHA:
         raise ValueError('この再生データは対応するv5.6.3モデルの記録ではありません')
+    if meta['stage'] == 4 and meta.get('scenery_version') != SCENERY_VERSION:
+        raise ValueError('動的ステージの再生バージョンが一致しません')
     if not isinstance(payload.get('result'),dict) or payload['result'].get('stage')!=meta['stage']:raise ValueError('invalid replay result')
     states=payload['states']
     if not isinstance(states,str) or len(states.encode())>MAX_BYTES:
@@ -41,7 +44,7 @@ def check_bundle(payload):
             raise ValueError('invalid replay values')
         result=row.get('result')
         if result is not None:
-            if result.get('stage')!=meta['stage'] or result.get('outcome') not in ('playing','finished','fallen','out_of_bounds','timeout','aborted'):raise ValueError('invalid frame result')
+            if result.get('stage')!=meta['stage'] or result.get('outcome') not in ('playing','finished','fallen','out_of_bounds','timeout','aborted','collision'):raise ValueError('invalid frame result')
             for key in ('energy_wh','average_power_w','elapsed_s','collisions','score'):
                 value=result[key]
                 if not isinstance(value,(int,float)) or not math.isfinite(value) or value<0:raise ValueError('invalid frame metrics')

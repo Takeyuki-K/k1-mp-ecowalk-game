@@ -37,7 +37,18 @@ STAGES = {
         'obstacles':[], 'walls':corridor_walls(S_CENTERLINE,2.5),
         'centerline':S_CENTERLINE, 'corridor_half_width':2.5,
         'bounds':[-2.,30.,-6.3,6.3]},
+    4: {'title':'TIMING & SPEED', 'length':34., 'goal':[34.,0.], 'goal_half_size':[.75,1.],
+        'obstacles':[], 'walls':corridor_walls([[-2.,0.],[37.,0.]],2.5),
+        'centerline':[[-2.,0.],[37.,0.]], 'corridor_half_width':2.5,
+        'bounds':[-2.,37.,-2.5,2.5],
+        'notice':'このステージには動く壁があります。タイミングと速度に注意してください。'},
 }
+
+def public_course(course):
+    """Allowlist for map/status/metadata; never export private scenery."""
+    import copy
+    return copy.deepcopy({k:course[k] for k in ('title','length','goal','goal_half_size',
+        'obstacles','walls','centerline','corridor_half_width','bounds','notice') if k in course})
 
 def course_center(stage, x):
     points = STAGES[stage]['centerline']
@@ -67,7 +78,7 @@ class Run:
     active_contacts: set = field(default_factory=set)
     last_contact: dict = field(default_factory=dict)
 
-    def update(self, dt, power, pos, speed, yaw_rate, contacts=(), fallen=False, stopped=False):
+    def update(self, dt, power, pos, speed, yaw_rate, contacts=(), fallen=False, stopped=False, collision_stop=False):
         if self.outcome != 'playing':
             return
         if not math.isfinite(power) or power < 0 or dt <= 0:
@@ -87,6 +98,8 @@ class Run:
         self.hold = self.hold + dt if inside and speed < .08 and abs(yaw_rate) < .08 and stopped else 0.
         if fallen:
             self.outcome = 'fallen'
+        elif collision_stop:
+            self.outcome = 'collision'
         elif not on_course(self.stage,pos):
             self.outcome = 'out_of_bounds'
         elif self.hold >= 1.:

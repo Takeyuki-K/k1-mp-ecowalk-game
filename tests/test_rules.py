@@ -58,3 +58,12 @@ def test_enclosed_courses_and_s_curve():
     r=Run(3)
     for _ in range(51):r.update(.02,100,[28,0,1],0,0,stopped=True)
     assert r.outcome=='finished'
+
+
+def test_deep_contact_stops_new_stage_without_scoring():
+    r=Run(4)
+    r.update(.02,100,[6,0,1],0,0,contacts={'wall'},collision_stop=True)
+    assert r.outcome=='collision' and r.collisions==1 and r.result()['score']==0
+    before=r.elapsed
+    r.update(.02,100,[7,0,1],1,0)
+    assert r.elapsed==before
