@@ -28,8 +28,7 @@ v5.6.3のK1 MP EcoWalkをCPU MuJoCoでテレオペし、ゴールまでの推定
 
 全長34mの直線通路に、独立して開閉する3組の壁が並びます。壁の動きを見てタイミングと速度を合わせ、挟まれずに通過してください。動く壁はミニマップに表示されないため、カメラ映像が頼りです。
 
-<!-- STAGE4_GIF: docs/images/stage4.gif を追加したら下の行のコメントを外す -->
-<!-- ![Stage 4](docs/images/stage4.gif) -->
+![Stage 4](docs/images/stage4.gif)
 
 ## 起動
 
